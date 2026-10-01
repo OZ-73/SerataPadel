@@ -1,6 +1,6 @@
 {
-  "name": "Torneo Padel",
-  "short_name": "Padel",
+  "name": "Serata Padel",
+  "short_name": "Serata Padel",
   "description": "Gestione tornei di padel: squadre, turni, Elo e Glicko-2",
   "lang": "it",
   "start_url": "./index.html",
