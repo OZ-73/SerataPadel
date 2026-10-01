@@ -1,0 +1,3460 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Torneo di Padel</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Padel">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="jszip.min.js"></script>
+<style>
+  :root{
+    --court: #0B3D3A; --court-2:#0F4F49; --line:#EAF6F1;
+    --ball:#D7E856; --ball-dark:#9CAA2E;
+    --ink:#EAF6F1; --ink-dim:#9FC2B8;
+    --card:#103F3C; --card-border:rgba(234,246,241,0.12);
+    --danger:#E2685C;
+    --font-head:'Space Grotesk',sans-serif; --font-body:'Inter',sans-serif;
+  }
+  @media (prefers-color-scheme: light){
+    :root{
+      --court:#F4F7F2; --court-2:#EAF0E6; --line:#0B3D3A;
+      --ink:#0B3D3A; --ink-dim:#547871; --card:#FFFFFF; --card-border:rgba(11,61,58,0.12);
+    }
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--court);color:var(--ink);font-family:var(--font-body);min-height:100vh;padding-bottom:3rem;}
+  .wrap{max-width:480px;margin:0 auto;padding:1.5rem 1.25rem 1rem;}
+  header{margin-bottom:1.5rem;}
+  .kicker{font-family:var(--font-head);font-size:13px;letter-spacing:0.02em;color:var(--ball);margin:0 0 4px;}
+  h1{font-family:var(--font-head);font-weight:700;font-size:28px;line-height:1.15;margin:0;letter-spacing:-0.01em;}
+  .sub{color:var(--ink-dim);font-size:14px;margin:8px 0 0;line-height:1.5;}
+  .court-lines{height:3px;background:repeating-linear-gradient(90deg,var(--ball) 0 18px, transparent 18px 30px);border-radius:3px;margin:1.25rem 0 1.5rem;opacity:0.6;}
+  section{margin-bottom:1.75rem;}
+  .section-label{font-family:var(--font-head);font-size:12px;color:var(--ink-dim);margin:0 0 10px;font-weight:600;}
+  .hint{font-size:12.5px;color:var(--ink-dim);margin:-4px 0 10px;line-height:1.5;}
+
+  textarea, input[type=text], input[type=number], select{
+    width:100%;background:var(--card);border:1px solid var(--card-border);border-radius:10px;
+    color:var(--ink);font-family:var(--font-body);font-size:15px;padding:12px;outline:none;
+  }
+  select{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%239FC2B8'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:30px;}
+  input:focus, textarea:focus, select:focus{border-color:var(--ball-dark);}
+  label.field{display:block;font-size:12px;color:var(--ink-dim);margin:0 0 6px;font-family:var(--font-head);}
+
+  .row2{display:flex;gap:10px;}
+  .row2 > div{flex:1;}
+
+  button.primary{width:100%;background:var(--ball);color:#1C2400;border:none;border-radius:12px;font-family:var(--font-head);font-weight:600;font-size:15px;padding:15px;cursor:pointer;}
+  button.primary:active{transform:scale(0.98);}
+  button.secondary{width:100%;background:transparent;color:var(--ball);border:1px solid rgba(215,232,86,0.4);border-radius:12px;font-family:var(--font-head);font-weight:600;font-size:14px;padding:13px;cursor:pointer;margin-top:10px;}
+  button.ghost, label.ghost{width:100%;background:transparent;color:var(--ink);border:1px solid var(--card-border);border-radius:12px;font-family:var(--font-body);font-weight:500;font-size:14px;padding:12px;cursor:pointer;margin-top:10px;display:block;box-sizing:border-box;text-align:center;}
+  button.small{background:transparent;color:var(--ink-dim);border:1px solid var(--card-border);border-radius:8px;font-size:11px;padding:6px 9px;cursor:pointer;font-family:var(--font-body);white-space:nowrap;}
+  button.small.danger{color:var(--danger);border-color:rgba(226,104,92,0.4);}
+  button.addbtn{background:var(--ball);color:#1C2400;border:none;border-radius:10px;font-family:var(--font-head);font-weight:600;font-size:14px;padding:0 16px;cursor:pointer;}
+  .btn-pair{display:flex;gap:8px;flex-wrap:wrap;}
+  .btn-pair button{flex:1 1 40%;margin-top:0;}
+
+  .team-card{background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:14px 16px;margin-bottom:10px;}
+  .team-card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+  .team-card-head .section-label{margin:0;}
+  .team-players{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .strength-row{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:12.5px;color:var(--ink-dim);}
+  .strength-row b{color:var(--ink);font-family:var(--font-head);font-weight:600;}
+  .strength-bar{flex:1;height:6px;border-radius:3px;background:var(--card-border);overflow:hidden;}
+  .strength-bar i{display:block;height:100%;background:var(--ball);border-radius:3px;}
+
+  .add-row{display:flex;gap:8px;margin-bottom:10px;}
+  .add-row input{flex:1;}
+
+  .roster-list{background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:6px 14px;}
+  .rank-list{background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:6px 14px;}
+  .roster-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--card-border);font-size:14px;}
+  .roster-row:first-child{border-top:none;}
+  .roster-row input[type=checkbox]{width:18px;height:18px;flex-shrink:0;accent-color:var(--ball);}
+  .roster-row .rname{flex:1;min-width:0;}
+  .roster-row .rname-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .roster-row .wr{color:var(--ink-dim);font-size:11.5px;font-family:var(--font-head);flex-shrink:0;text-align:right;}
+  .side-select{width:52px;flex-shrink:0;padding:6px 18px 6px 8px;font-size:12px;background-position:right 8px center;}
+  .roster-row .actions{display:flex;gap:6px;flex-shrink:0;}
+  .roster-empty{color:var(--ink-dim);font-size:13px;padding:10px 0;}
+  .rename-input{padding:8px;font-size:13.5px;}
+  .roster-row input.rating-input{width:78px;flex-shrink:0;padding:8px 4px;font-size:13.5px;text-align:center;}
+
+  .rank-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--card-border);font-size:14px;}
+  .rank-row:first-child{border-top:none;}
+  .rank-num{font-family:var(--font-head);font-size:13px;color:var(--ink-dim);width:20px;}
+  .rank-num.tied, .rank.tied{color:var(--ball-dark);font-weight:700;}
+  .rank-row.top1 .rank-num{color:var(--ball);}
+  .rank-name{flex:1;}
+  .rank-elo{font-family:var(--font-head);font-weight:600;font-size:14px;}
+  .rank-meta{font-size:11px;color:var(--ink-dim);width:78px;text-align:right;}
+  .delta{font-family:var(--font-head);font-size:11px;width:32px;text-align:right;flex-shrink:0;}
+  .delta.up{color:#8FD14F;}
+  .delta.down{color:var(--danger);}
+  .delta.same{color:var(--ink-dim);}
+  .delta.new{color:var(--ball-dark);font-size:10px;}
+
+  .match-card{background:var(--card);border:1px solid var(--card-border);border-radius:14px;padding:14px 16px;margin-bottom:10px;}
+  .match-court{font-family:var(--font-head);font-size:11px;color:var(--ball-dark);text-transform:uppercase;letter-spacing:0.04em;margin:0 0 10px;}
+  .match-row{display:flex;align-items:center;gap:10px;}
+  .team-name{flex:1;font-size:14.5px;font-weight:500;}
+  .team-name.right{text-align:right;}
+  .score-input{width:44px;text-align:center;padding:10px 4px;font-family:var(--font-head);font-weight:600;}
+  .edit-match{padding:10px 0;border-top:1px solid var(--card-border);}
+  .edit-match-name{font-size:13px;color:var(--ink-dim);line-height:1.45;margin-bottom:8px;}
+  .edit-match-name b{color:var(--ink);font-weight:500;}
+  .edit-match-score{display:flex;align-items:center;justify-content:center;gap:10px;}
+  .edit-match-score input{width:52px;max-width:52px;box-sizing:border-box;text-align:center;padding:8px 2px;font-family:var(--font-head);font-weight:600;font-size:14px;flex:none;}
+  .edit-match-row{display:flex;align-items:center;justify-content:flex-start;gap:8px;flex-wrap:wrap;}
+  .edit-match-row .edit-match-score{justify-content:flex-start;}
+  .edit-match-tag select{padding:6px;font-size:12px;margin-top:6px;}
+  .dash{color:var(--ink-dim);font-size:13px;}
+  .tb-row{display:flex;align-items:center;gap:10px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--card-border);}
+  .tb-label{flex:1;font-size:12px;color:var(--ink-dim);text-transform:uppercase;letter-spacing:0.03em;}
+  .tb-input{width:38px;}
+  .tb-inline{color:var(--ink-dim);font-size:12px;margin-left:4px;}
+
+  .extra-row{align-items:center;gap:10px;}
+  .extra-row > span:first-child{flex:1;min-width:0;}
+  .extra-side{display:flex;align-items:center;gap:10px;flex-shrink:0;color:var(--ink);font-family:var(--font-head);font-weight:600;}
+  .extra-tag{display:block;font-size:11px;color:var(--ink-dim);font-family:var(--font-body);font-weight:400;margin-top:2px;}
+  .delta.wide{width:46px;}
+  .seg{display:flex;gap:8px;margin-bottom:10px;}
+  .seg button{flex:1;font-size:13px;padding:10px;}
+  button.small.on{background:var(--ball);color:#1C2400;border-color:var(--ball);font-weight:600;}
+  .resting{font-size:12.5px;color:var(--ink-dim);margin:8px 0 0;}
+
+  .err{color:var(--danger);font-size:13px;margin:6px 0 0;}
+  .banner{background:rgba(215,232,86,0.12);border:1px solid rgba(215,232,86,0.35);border-radius:12px;padding:12px 14px;font-size:14px;margin-bottom:1.25rem;}
+  .banner.warn{background:rgba(226,104,92,0.1);border-color:rgba(226,104,92,0.4);}
+
+  table{width:100%;border-collapse:collapse;font-size:14px;}
+  th{text-align:left;font-family:var(--font-head);font-weight:600;font-size:11px;color:var(--ink-dim);text-transform:uppercase;letter-spacing:0.03em;padding:0 0 8px;}
+  th.num, td.num{text-align:center;}
+  td{padding:10px 0;border-top:1px solid var(--card-border);}
+  .rank{color:var(--ink-dim);font-family:var(--font-head);font-size:13px;width:22px;display:inline-block;}
+  .pos-1 .rank{color:var(--ball);}
+
+  .history-round{margin-bottom:14px;}
+  .history-round .section-label{margin-bottom:6px;}
+  .history-match{display:flex;justify-content:space-between;font-size:13px;padding:7px 0;border-top:1px solid var(--card-border);color:var(--ink-dim);}
+  .history-match b{color:var(--ink);font-weight:500;}
+
+  .data-row{display:flex;gap:8px;}
+  .data-row button, .data-row label{flex:1;margin-top:0;}
+  input[type=file]{display:none;}
+
+  footer{text-align:center;color:var(--ink-dim);font-size:12px;margin-top:2rem;}
+
+  /* Condivisione / kiosk / profilo */
+  #kioskOverlay{
+    display:none; position:fixed; inset:0; width:100%; height:100%;
+    background:var(--court); z-index:9999; flex-direction:column; overflow-y:auto;
+    padding:1.5rem 1.25rem; box-sizing:border-box;
+  }
+  .kiosk-header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:1.5rem;flex-wrap:wrap;}
+  .kiosk-timer{font-family:var(--font-head);font-size:3rem;font-weight:700;color:var(--ball);font-variant-numeric:tabular-nums;cursor:pointer;line-height:1;}
+  .kiosk-match{background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:1.25rem 1rem;margin-bottom:12px;text-align:center;}
+  .kiosk-court{font-family:var(--font-head);color:var(--ball-dark);font-size:12px;text-transform:uppercase;letter-spacing:0.05em;margin:0 0 12px;}
+  .kiosk-teams{font-size:1.25rem;font-weight:600;display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;line-height:1.3;}
+  .kiosk-vs{opacity:0.5;font-size:0.9rem;font-weight:400;}
+  .modal-backdrop{position:fixed;inset:0;background:rgba(11,61,58,0.82);z-index:1000;display:flex;align-items:center;justify-content:center;padding:1rem;box-sizing:border-box;}
+  .modal-content{background:var(--court);border:1px solid var(--card-border);border-radius:16px;width:100%;max-width:440px;max-height:90vh;overflow-y:auto;padding:1.35rem 1.25rem;position:relative;}
+  .stat-box{background:var(--card);border-radius:12px;padding:12px 14px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;}
+  .stat-box .val{font-family:var(--font-head);font-weight:700;color:var(--ball);font-size:18px;flex-shrink:0;}
+  .rank-name.clickable{cursor:pointer;text-decoration:underline;text-decoration-color:rgba(215,232,86,0.35);text-underline-offset:3px;}
+
+
+  /* App installata (PWA): rispetta tacca e barra di sistema */
+  body{padding-top:env(safe-area-inset-top,0px);padding-bottom:calc(3rem + env(safe-area-inset-bottom,0px));}
+  #kioskOverlay{padding-top:calc(1.5rem + env(safe-area-inset-top,0px));padding-bottom:calc(1.5rem + env(safe-area-inset-bottom,0px));}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="kicker">Serata di padel</p>
+    <h1 id="title">Torneo</h1>
+    <p class="sub" id="subtitle">Ogni squadra gioca ogni turno, nessuno resta fermo più a lungo degli altri. Gli accoppiamenti seguono i risultati.</p>
+  </header>
+  <div class="court-lines"></div>
+  <div id="app"></div>
+  <footer id="foot"></footer>
+</div>
+
+<script>
+const LS_TOURNAMENT = 'padel-tournament-v4';
+const LS_LAST_BACKUP = 'padel-lastbackup-v1';
+function getLastBackup(){ try{ return localStorage.getItem(LS_LAST_BACKUP) || ''; }catch(e){ return ''; } }
+function markBackup(){ try{ localStorage.setItem(LS_LAST_BACKUP, new Date().toISOString()); }catch(e){} }
+const LS_ROSTER = 'padel-roster-v4';
+let ratingMigration = false;   // true se al caricamento la rubrica arriva da una versione senza rating iniziale
+function newId(used){
+  let id;
+  do { id = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); } while(used && used.has(id));
+  return id;
+}
+const START_ELO = 1000;
+// K variabile: alto per chi ha poche partite (il rating si assesta in fretta), più basso per i veterani.
+const K_NEW = 40, K_MID = 32, K_VET = 24;
+const K_NEW_UNTIL = 10, K_MID_UNTIL = 30;   // partite giocate
+// Peso delle partite extra impostate su "ridotto" (moltiplica il K).
+const EXTRA_K_FACTOR = 0.5;
+// Classifica a percentuale di vittorie: sotto questa soglia di partite un giocatore non ha posizione.
+const MIN_MATCHES_WINRATE = 5;
+const LS_RANK_MODE = 'padel-rankmode-v1';
+let rankMode = (function(){ try{ const m = localStorage.getItem(LS_RANK_MODE); return (m==='win' || m==='glicko') ? m : 'elo'; }catch(e){ return 'elo'; } })();
+function setRankMode(m){ rankMode = m; try{ localStorage.setItem(LS_RANK_MODE, m); }catch(e){} render(); }
+
+function normalizeTournament(obj){
+  const base = { phase:'setup', courts:3, maxRounds:3, teams:[], round:0, played:[], currentMatches:[], history:[], restCounts:{}, courtCounts:{}, sideCounts:{}, lastMeetingCourt:{}, lastMeetingSide:{}, unofficial:false, useClassicSchedule:false, classicSchedule:null, restingThisRound:[], extras:[] };
+  const merged = Object.assign({}, base, obj||{});
+  merged.teams.forEach(tm => {
+    if(tm.wins===undefined) tm.wins = 0;
+    if(tm.setsWon===undefined) tm.setsWon = 0;
+    if(tm.setsLost===undefined) tm.setsLost = 0;
+    if(tm.matchesPlayed===undefined) tm.matchesPlayed = 0;
+    if(!tm.players) tm.players = tm.name ? tm.name.split(' & ') : [];
+    if(merged.restCounts[tm.id]===undefined) merged.restCounts[tm.id] = 0;
+    if(!merged.courtCounts[tm.id]) merged.courtCounts[tm.id] = new Array(merged.courts||1).fill(0);
+    if(!merged.sideCounts[tm.id]) merged.sideCounts[tm.id] = { A:0, B:0 };
+  });
+  return merged;
+}
+
+function normalizeRoster(obj){
+  const r = obj || {};
+  // Backup vecchi: chiave = slug del nome, con un campo .id separato. La chiave diventa l'id stesso,
+  // così un solo identificatore vale ovunque (rubrica, squadre, archivio) e una rinomina non deve più spostare nulla.
+  const legacy = Object.keys(r).some(k => r[k] && r[k].id && r[k].id !== k);
+  let out = r;
+  if(legacy){
+    out = {};
+    Object.values(r).forEach(p => {
+      const id = (p && p.id) || newId(new Set(Object.keys(out)));
+      out[id] = { name:p.name, matches:p.matches||0, wins:p.wins||0, elo: p.elo!==undefined?p.elo:START_ELO, elo0: p.elo0!==undefined?p.elo0:START_ELO, side:p.side||'', hidden: !!p.hidden, frozen: !!p.frozen };
+    });
+    ratingMigration = true;
+  }
+  Object.keys(out).forEach(k => {
+    if(out[k].elo0===undefined){ out[k].elo0 = START_ELO; ratingMigration = true; }
+    if(out[k].elo===undefined) out[k].elo = START_ELO;
+    if(out[k].side===undefined) out[k].side = '';
+    if(out[k].frozen===undefined) out[k].frozen = false;
+    if(out[k].matches===undefined) out[k].matches = 0;
+    if(out[k].wins===undefined) out[k].wins = 0;
+  });
+  return out;
+}
+
+function normalizeArchive(arr){
+  if(!Array.isArray(arr)) return [];
+  return arr.map(a => Object.assign({ date:new Date().toISOString(), courts:0, maxRounds:0, roundsPlayed:0, teams:[], history:[], extras:[], ratingChanges:[] }, a));
+}
+
+function loadTournament(){
+  try{ const raw = localStorage.getItem(LS_TOURNAMENT); if(raw) return normalizeTournament(JSON.parse(raw)); }catch(e){}
+  return normalizeTournament(null);
+}
+function saveTournament(){ try{ localStorage.setItem(LS_TOURNAMENT, JSON.stringify(t)); }catch(e){} }
+
+function loadRoster(){
+  try{ const raw = localStorage.getItem(LS_ROSTER); if(raw) return normalizeRoster(JSON.parse(raw)); }catch(e){}
+  return {}; // key(lowercase) -> {name, matches, wins, elo, side}
+}
+function saveRoster(){ try{ localStorage.setItem(LS_ROSTER, JSON.stringify(roster)); }catch(e){} }
+
+const LS_ARCHIVE = 'padel-archive-v4';
+const ARCHIVE_MAX = 300;
+function loadArchive(){ try{ const raw = localStorage.getItem(LS_ARCHIVE); if(raw) return normalizeArchive(JSON.parse(raw)); }catch(e){} return []; }
+function saveArchive(){ try{ localStorage.setItem(LS_ARCHIVE, JSON.stringify(archive)); }catch(e){} }
+
+let archive = loadArchive();
+
+let t = loadTournament();
+let roster = loadRoster();
+let resetArmed = false;
+let draftTeams = [];
+const LS_SELECTED = 'padel-selected-players-v1';
+let selected = (function(){
+  try{
+    const raw = localStorage.getItem(LS_SELECTED);
+    if(raw) return new Set(JSON.parse(raw));
+  }catch(e){}
+  return new Set();
+})();
+function saveSelected(){ try{ localStorage.setItem(LS_SELECTED, JSON.stringify(Array.from(selected))); }catch(e){} }
+let editingKey = null;
+let deleteArmedKey = null;
+let showRanking = false;
+let showTeamRanking = false;
+let showArchive = false;
+let expandedArchiveIdx = null;
+let dataMsg = '';
+let rosterMsg = '';
+let extraDraft = null;      // bozza della partita extra in inserimento (null = modulo chiuso)
+let roundDraft = {};        // punteggi del turno in corso non ancora salvati, per non perderli ad ogni render (es. aggiungendo una partita extra)
+let pairEdit = null;        // bozza modifica abbinamenti turno: {type:'rotating'|'fixed', courts:[...]} oppure null
+let ratingSummary = null;   // variazioni di rating mostrate dopo la chiusura di un torneo
+let pendingMode = 'fixed';  // scelta nella schermata di setup: 'fixed' | 'americano' | 'messicano' (non salvata)
+function setPendingMode(m){ pendingMode = m; draftTeams = []; render(); }
+
+function slug(name){ return name.trim().toLowerCase(); }
+function findIdByName(name){
+  const sk = slug(name);
+  for(const k in roster){ if(slug(roster[k].name) === sk) return k; }
+  return null;
+}
+function upsertPlayer(name){
+  const clean = name.trim();
+  if(!slug(clean)) return null;
+  let id = findIdByName(clean);
+  if(!id){
+    id = newId(new Set(Object.keys(roster)));
+    roster[id] = { name:clean, matches:0, wins:0, elo:START_ELO, elo0:START_ELO, side:'', frozen:false };
+  }
+  const p = roster[id];
+  if(p.hidden) p.hidden = false;   // un giocatore eliminato che torna riprende la sua storia
+  if(p.elo === undefined) p.elo = START_ELO;
+  if(p.side === undefined) p.side = '';
+  return p;
+}
+function resolveId(name){ return findIdByName(name) || 'x:'+slug(name); }
+function playerName(id){ return (roster[id] && roster[id].name) || id; }
+function shuffle(arr){
+  const a = arr.slice();
+  for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
+  return a;
+}
+function activeKeys(){ return Object.keys(roster).filter(k => !roster[k].hidden); }
+function setSide(key, val){ if(roster[key]){ roster[key].side = val; saveRoster(); } render(); }
+function eloOf(name){ const id = findIdByName(name); return id ? (roster[id].elo||START_ELO) : START_ELO; }
+function winRate(p){ return p.matches>0 ? p.wins/p.matches : null; }
+function pairKey(a,b){ return a<b ? a+'-'+b : b+'-'+a; }
+
+// ---------- Elo (ricalcolato dai tornei archiviati) ----------
+
+// Risultato frazionario per la coppia A, dal punteggio in game: 1 = vittoria netta, 0,5 = pareggio.
+// Vale sia per l'Elo sia per il Glicko-2.
+// Il margine si misura come (scarto / game giocati)^0,6: a parità di scarto, più game giocati = squadre più equilibrate = vale meno.
+// - Partita CONCLUSA (chi vince ha almeno 6 game e arriva a 6 oppure chiude con 2 game di scarto: 6-x, 7-5, 8-6...):
+//   ha un vincitore vero, quindi vale tra WIN_FLOOR (0,75) e 1. Così chi vince non perde punti se la differenza di rating
+//   tra le coppie è entro circa 250 punti (E resta sotto il valore di un 6-5). 6-0 = 1; 6-1 0,95; 6-2 0,92; 6-3 0,88; 6-4 0,85; 6-5 0,81;
+//   7-5 0,83; 8-6 0,83; 9-7 0,82.
+// - Partita INTERROTTA o pari (7-6, 8-7, 7-7, oppure sotto il 6): è solo un indizio, resta sulla scala 0,5-0,75.
+//   Sotto il 6 si considerano almeno 11 game (poche prove). Chi è avanti può perdere punti se era il netto favorito e ha faticato.
+const SCORE_EXP = 0.6;
+const SCORE_MIN_GAMES = 11;
+const WIN_FLOOR = 0.75;
+function scoreFinished(s1, s2){
+  const d = Math.abs(s1-s2), mx = Math.max(s1, s2);
+  return d > 0 && mx >= 6 && (mx === 6 || d === 2);
+}
+// Vincitore dal punteggio: 1 = lato A, 0 = lato B, 0.5 = pareggio vero (6-6 senza tie-break deciso).
+function matchWinner(s1, s2, tb){
+  if(s1 !== s2) return s1 > s2 ? 1 : 0;
+  if(tb && tb[0] !== tb[1]) return tb[0] > tb[1] ? 1 : 0;
+  return 0.5;
+}
+function isTiedSix(s1, s2){ return s1===6 && s2===6; }
+// Punteggio del tie-break valido: si vince arrivando almeno a 7 con almeno 2 punti di scarto,
+// ma sopra il 7 lo scarto deve essere esattamente 2 (altrimenti il tie-break sarebbe già finito prima, es. 8-4 non è raggiungibile).
+function tiebreakIsPlausible(tb1, tb2){
+  if(!Number.isInteger(tb1) || !Number.isInteger(tb2) || tb1<0 || tb2<0) return false;
+  const mx = Math.max(tb1,tb2), d = Math.abs(tb1-tb2);
+  if(mx < 7 || d < 2) return false;
+  if(mx > 7 && d !== 2) return false;
+  return true;
+}
+
+function gameScore(s1, s2, tb){
+  if(s1 === s2){
+    // 6-6 deciso al tie-break: partita conclusa, il margine si misura sui punti del tie-break invece che sui game.
+    if(tb && tb[0] !== tb[1]){
+      const d = Math.abs(tb[0]-tb[1]), n = tb[0]+tb[1];
+      const x = WIN_FLOOR + (1 - WIN_FLOOR)*Math.pow(Math.min(1, d/n), SCORE_EXP);
+      return tb[0] > tb[1] ? x : 1 - x;
+    }
+    return 0.5;
+  }
+  const d = Math.abs(s1-s2), mx = Math.max(s1, s2), n = s1 + s2;
+  let x;
+  if(scoreFinished(s1, s2)){
+    x = WIN_FLOOR + (1 - WIN_FLOOR)*Math.pow(Math.min(1, d/n), SCORE_EXP);
+  } else {
+    const N = mx < 6 ? Math.max(n, SCORE_MIN_GAMES) : n;
+    x = Math.min(WIN_FLOOR, 0.5 + 0.5*Math.pow(Math.min(1, d/N), SCORE_EXP));
+  }
+  return s1 > s2 ? x : 1 - x;
+}
+
+function kFor(matches){ return matches < K_NEW_UNTIL ? K_NEW : (matches < K_MID_UNTIL ? K_MID : K_VET); }
+
+function esc(str){ return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+function teamIdsFor(a, id, name){
+  const tm = (id !== undefined && a.teams[id]) ? a.teams[id] : a.teams.find(x => x.name === name);
+  if(tm) return tm.playerIds || (tm.players || (tm.name ? tm.name.split(' & ') : [])).map(resolveId);
+  return String(name).split(' & ').map(resolveId);
+}
+
+// Riempie gli id mancanti nei tornei archiviati (dati vecchi) e fissa il peso delle extra come numero.
+function ensureArchiveIds(){
+  archive.forEach(a => {
+    (a.teams || []).forEach(tm => {
+      const names = tm.players || (tm.name ? tm.name.split(' & ') : []);   // players non è più salvato: si ricava da name
+      if(!tm.playerIds || tm.playerIds.length !== names.length) tm.playerIds = names.map(resolveId);
+    });
+    (a.history || []).forEach(h => h.matches.forEach(m => {
+      if(!m.pa) m.pa = teamIdsFor(a, m.aId, m.a);
+      if(!m.pb) m.pb = teamIdsFor(a, m.bId, m.b);
+    }));
+    (a.extras || []).forEach(x => {
+      if(!x.idsA) x.idsA = x.teamA.map(resolveId);
+      if(!x.idsB) x.idsB = x.teamB.map(resolveId);
+      if(x.weight === undefined) x.weight = x.rating==='full' ? 1 : (x.rating==='reduced' ? EXTRA_K_FACTOR : 0);
+    });
+  });
+}
+
+// Partite di un torneo archiviato che contano per i rating: turni (peso 1) + extra (con il peso salvato).
+function archiveGames(a){
+  const out = [];
+  (a.history || []).forEach(h => h.matches.forEach(m => {
+    out.push({ idsA: m.pa || teamIdsFor(a, m.aId, m.a), idsB: m.pb || teamIdsFor(a, m.bId, m.b), s1:m.s1, s2:m.s2, tb:m.tb, weight:1 });
+  }));
+  (a.extras || []).forEach(x => {
+    const w = x.weight !== undefined ? x.weight : (x.rating==='full' ? 1 : (x.rating==='reduced' ? EXTRA_K_FACTOR : 0));
+    if(w > 0) out.push({ idsA: x.idsA || x.teamA.map(resolveId), idsB: x.idsB || x.teamB.map(resolveId), s1:x.s1, s2:x.s2, tb:x.tb, weight:w });
+  });
+  return out;
+}
+
+function archiveIdNames(a){
+  const m = {};
+  (a.teams || []).forEach(tm => { const names = tm.players || (tm.name ? tm.name.split(' & ') : []); (tm.playerIds || []).forEach((id,i) => { if(names[i]) m[id] = names[i]; }); });
+  (a.history || []).forEach(h => h.matches.forEach(mt => {
+    (mt.pa || []).forEach((id,i) => { const nm = (mt.a||'').split(' & ')[i]; if(nm) m[id] = nm; });
+    (mt.pb || []).forEach((id,i) => { const nm = (mt.b||'').split(' & ')[i]; if(nm) m[id] = nm; });
+  }));
+  (a.extras || []).forEach(x => {
+    (x.idsA || []).forEach((id,i) => { if(x.teamA[i]) m[id] = x.teamA[i]; });
+    (x.idsB || []).forEach((id,i) => { if(x.teamB[i]) m[id] = x.teamB[i]; });
+  });
+  return m;
+}
+
+// Delta di un torneo, tutti calcolati sui rating di inizio torneo (snap: id -> {elo, matches}): l'ordine delle partite non conta.
+function computeRatingChanges(entries, snap, opts){
+  const scoreFn = (opts && opts.scoreFn) || gameScore;
+  const kScale = (opts && opts.kScale) || 1;
+  const acc = {};
+  const info = id => snap[id] || { elo: START_ELO, matches: 0 };
+  const avg = arr => arr.reduce((a,b)=>a+b,0) / arr.length;
+  function add(id, delta, gain){
+    if(!acc[id]) acc[id] = { id, delta:0, matches:0, wins:0 };
+    acc[id].delta += delta; acc[id].matches++; acc[id].wins += gain;
+  }
+  entries.forEach(e => {
+    if(!e.idsA.length || !e.idsB.length) return;
+    const S = scoreFn(e.s1, e.s2, e.tb);
+    const res = matchWinner(e.s1, e.s2, e.tb);
+    const rA = avg(e.idsA.map(id => info(id).elo));
+    const rB = avg(e.idsB.map(id => info(id).elo));
+    const expA = 1/(1+Math.pow(10,(rB-rA)/400));
+    e.idsA.forEach(id => add(id, kFor(info(id).matches)*kScale*e.weight*(S-expA), res));
+    e.idsB.forEach(id => add(id, kFor(info(id).matches)*kScale*e.weight*(expA-S), 1-res));
+  });
+  return acc;
+}
+
+// Rigioca in ordine tutti i tornei archiviati a partire dal rating iniziale di ciascuno e aggiorna la rubrica.
+function computeEloStates(list, writeRows, opts){
+  list = (list || archive).filter(a => !a.excluded);
+  const byId = roster;  // la chiave della rubrica È l'id
+  const state = {};
+  const st = id => state[id] || (state[id] = byId[id]
+    ? { elo:byId[id].elo0, matches:byId[id].matches0||0, wins:byId[id].wins0||0 }
+    : { elo:START_ELO, matches:0, wins:0 });
+  list.forEach((a, pi) => {
+    const entries = archiveGames(a);
+    entries.forEach(e => e.idsA.concat(e.idsB).forEach(st));
+    const snap = {};
+    Object.keys(state).forEach(id => { snap[id] = { elo:state[id].elo, matches:state[id].matches }; });
+    if(opts && opts.onPeriod) opts.onPeriod(a, entries, snap, pi);
+    const names = archiveIdNames(a);
+    const rows = [];
+    Object.values(computeRatingChanges(entries, snap, opts)).forEach(c => {
+      const sv = state[c.id], before = sv.elo;
+      const frozen = byId[c.id] && byId[c.id].frozen;
+      if(!frozen){ sv.elo = Math.round((before + c.delta)*10)/10; }   // congelato: resta un riferimento stabile, non assorbe i risultati
+      sv.matches += c.matches; sv.wins += c.wins;
+      rows.push({ id:c.id, name: byId[c.id] ? byId[c.id].name : (names[c.id] || c.id), before, after:sv.elo, matches:c.matches });
+    });
+    if(writeRows) a.ratingChanges = rows.sort((x,y)=> y.after-x.after || x.name.localeCompare(y.name));
+  });
+  return state;
+}
+
+function recomputeRatings(){
+  const state = computeEloStates(archive, true);  // gli esclusi sono filtrati dentro computeEloStates
+  Object.keys(roster).forEach(id => {
+    const p = roster[id], sv = state[id];
+    p.elo = sv ? sv.elo : p.elo0;
+    p.matches = sv ? sv.matches : (p.matches0||0);
+    p.wins = sv ? sv.wins : (p.wins0||0);
+  });
+}
+
+// Se l'archivio supera il limite, il torneo più vecchio esce ma il suo effetto resta nel rating iniziale (così nessun rating cambia).
+function foldArchiveEntryIntoBase(a){
+  if(a.excluded) return;   // già fuori dai calcoli: esce dall'archivio senza toccare nulla
+  const byId = roster;  // la chiave della rubrica È l'id
+  const entries = archiveGames(a);
+  const snap = {};
+  entries.forEach(e => e.idsA.concat(e.idsB).forEach(id => {
+    const p = byId[id];
+    snap[id] = p ? { elo:p.elo0, matches:p.matches0||0 } : { elo:START_ELO, matches:0 };
+  }));
+  Object.values(computeRatingChanges(entries, snap)).forEach(c => {
+    const p = byId[c.id];
+    if(!p) return;
+    if(!p.frozen){ p.elo0 = Math.round((p.elo0 + c.delta)*10)/10; }
+    p.matches0 = (p.matches0||0) + c.matches;
+    p.wins0 = (p.wins0||0) + c.wins;
+  });
+}
+
+function buchholz(teamId){
+  let sum = 0;
+  t.history.forEach(h => h.matches.forEach(m => {
+    if(m.aId === teamId){ const opp = t.teams.find(x=>x.id===m.bId); if(opp) sum += opp.wins; }
+    else if(m.bId === teamId){ const opp = t.teams.find(x=>x.id===m.aId); if(opp) sum += opp.wins; }
+  }));
+  return sum;
+}
+function standingsSort(a,b){
+  return b.wins - a.wins || (b.setsWon-b.setsLost) - (a.setsWon-a.setsLost) || buchholz(b.id) - buchholz(a.id);
+}
+
+// ---------- roster management ----------
+
+function addNewPlayer(){
+  const inp = document.getElementById('newPlayer');
+  const name = inp.value.trim();
+  if(!name) return;
+  upsertPlayer(name);
+  const id = findIdByName(name);
+  if(id) selected.add(id);
+  saveRoster();
+  inp.value = '';
+  render();
+  setTimeout(()=>{ const el = document.getElementById('newPlayer'); if(el) el.focus(); }, 0);
+}
+function toggleSelected(key, checked){ if(checked) selected.add(key); else selected.delete(key); saveSelected(); render(); }
+function selectAll(){ activeKeys().forEach(k => selected.add(k)); saveSelected(); render(); }
+function deselectAll(){ selected.clear(); saveSelected(); render(); }
+
+function startRename(key){ editingKey = key; rosterMsg = ''; render(); }
+function saveRename(key){
+  const val = document.getElementById('rename_'+key).value.trim();
+  if(!val){ editingKey = null; rosterMsg = ''; render(); return; }
+  const collision = findIdByName(val);
+  if(collision && collision !== key){ rosterMsg = 'Esiste già un partecipante con questo nome.'; render(); return; }
+  const ratingEl = document.getElementById('ratingedit_'+key);
+  const newRating = ratingEl ? parseFloat(String(ratingEl.value).replace(',','.')) : NaN;
+  const frozenEl = document.getElementById('frozenedit_'+key);
+  const p = roster[key];
+  p.name = val;
+  let ratingChanged = false;
+  if(isFinite(newRating) && newRating >= 100 && newRating <= 3000){
+    const r = Math.round(newRating*10)/10;
+    if(r !== p.elo0){ p.elo0 = r; ratingChanged = true; }
+  }
+  if(frozenEl && !!frozenEl.checked !== !!p.frozen){ p.frozen = !!frozenEl.checked; ratingChanged = true; }
+  if(ratingChanged){
+    // Il rating iniziale cambia tutta la storia derivata: ricalcolo tutto dall'archivio.
+    recomputeRatings();
+    saveArchive();
+  }
+  saveRoster();
+  editingKey = null;
+  rosterMsg = '';
+  render();
+}
+function askDelete(key){ deleteArmedKey = key; render(); }
+function cancelDelete(){ deleteArmedKey = null; render(); }
+function confirmDelete(key){
+  // Eliminazione "morbida": il giocatore sparisce dalla rubrica ma resta nella storia dei tornei (e riprende se lo riaggiungi).
+  if(roster[key]) roster[key].hidden = true;
+  selected.delete(key);
+  saveSelected();
+  saveRoster();
+  deleteArmedKey = null;
+  render();
+}
+
+// ---------- setup / draft teams ----------
+
+const LS_SUGGEST_BY = 'padel-suggestby-v1';
+let suggestBy = (function(){ try{ return localStorage.getItem(LS_SUGGEST_BY)==='glicko' ? 'glicko' : 'elo'; }catch(e){ return 'elo'; } })();
+function setSuggestBy(m){ suggestBy = m; try{ localStorage.setItem(LS_SUGGEST_BY, m); }catch(e){} render(); }
+function methodToggleHtml(){
+  return '<div class="seg" style="margin-bottom:10px;"><button class="small'+(suggestBy==='elo'?' on':'')+'" onclick="setSuggestBy(\'elo\')">Elo</button><button class="small'+(suggestBy==='glicko'?' on':'')+'" onclick="setSuggestBy(\'glicko\')">Glicko-2</button></div>';
+}
+const LS_VARY_PAIRS = 'padel-varypairs-v1', LS_IGNORE_SIDES = 'padel-ignoresides-v1';
+let varyPairs = (function(){ try{ return localStorage.getItem(LS_VARY_PAIRS) !== '0'; }catch(e){ return true; } })();       // di default: un po' di casualità tra forze simili
+let ignoreSides = (function(){ try{ return localStorage.getItem(LS_IGNORE_SIDES) === '1'; }catch(e){ return false; } })();  // di default: si rispettano Sx/Dx
+function setVaryPairs(v){ varyPairs = !!v; try{ localStorage.setItem(LS_VARY_PAIRS, v?'1':'0'); }catch(e){} render(); }
+function setIgnoreSides(v){ ignoreSides = !!v; try{ localStorage.setItem(LS_IGNORE_SIDES, v?'1':'0'); }catch(e){} render(); }
+// Forza di un giocatore (per nome) con il metodo scelto, e forza media di una squadra della bozza.
+function strengthOfName(name, gm){
+  const id = findIdByName(name);
+  if(!id || !roster[id]) return START_ELO;
+  return gm ? (gm[id] !== undefined ? gm[id] : START_ELO) : (roster[id].elo || START_ELO);
+}
+function draftTeamStrength(dt, gm){
+  const v = [dt.p1, dt.p2].filter(x => x && x.trim()).map(n => strengthOfName(n, gm));
+  return v.length ? v.reduce((a,b)=>a+b,0)/v.length : null;
+}
+function strengthOfId(id, gm){
+  if(!id || !roster[id]) return START_ELO;
+  return gm ? (gm[id] !== undefined ? gm[id] : START_ELO) : (roster[id].elo || START_ELO);
+}
+// Riga "Forza" (come nella formazione squadre fisse), riusata per i campi dell'Americano/Messicano, sia in vista normale che nell'editor abbinamenti.
+// courtStrengths[i] = { a, b } forze medie delle due squadre del match (null se incomplete).
+function strengthRowHtml(courtStrengths, idx){
+  const st = courtStrengths[idx];
+  if(!st || st.a === undefined || st.b === undefined) return '';
+  const diff = st.a - st.b;
+  const ad = Math.abs(diff);
+  // Sbilanciamento relativo agli altri match del turno (sulla |Δ|).
+  const diffs = courtStrengths.filter(v => v && v.a !== undefined).map(v => Math.abs(v.a - v.b));
+  const meanD = diffs.length ? diffs.reduce((x,y)=>x+y,0)/diffs.length : 0;
+  const sdD = diffs.length ? Math.sqrt(diffs.reduce((x,y)=>x+(y-meanD)*(y-meanD),0)/diffs.length) : 0;
+  const off = diffs.length >= 2 && ad > meanD + 0.6*sdD && ad >= 25;
+  const mx = diffs.length ? Math.max(...diffs) : ad, mn = diffs.length ? Math.min(...diffs) : 0;
+  const pct = mx > mn ? 12 + 88*(ad - mn)/(mx - mn) : 50;
+  return '<div class="strength-row"><span>Forza <b>'+Math.round(st.a)+'</b> &ndash; <b>'+Math.round(st.b)+'</b></span><span'+(off?' style="color:var(--danger);font-weight:600;"':'')+'>Δ '+(diff>=0?'+':'')+Math.round(diff)+(off?' ⚠':'')+'</span><div class="strength-bar"><i style="width:'+pct.toFixed(0)+'%"></i></div></div>';
+}
+function courtsSummaryHtml(courtStrengths, methodLabel){
+  const vals = courtStrengths.filter(v => v && v.a !== undefined);
+  if(vals.length < 1) return '';
+  const diffs = vals.map(v => Math.abs(v.a - v.b));
+  const mn = Math.min(...diffs), mx = Math.max(...diffs);
+  const meanA = vals.reduce((s,v)=>s+v.a,0)/vals.length, meanB = vals.reduce((s,v)=>s+v.b,0)/vals.length;
+  return '<p class="hint"><b>Forza squadre ('+methodLabel+'):</b> Δ match da '+Math.round(mn)+' a '+Math.round(mx)+' punti &middot; medie lato A/B '+Math.round(meanA)+' / '+Math.round(meanB)+'.</p>';
+}
+function teamStrengthIds(ids, gm){
+  const v = (ids||[]).filter(Boolean).map(id => strengthOfId(id, gm));
+  return v.length ? v.reduce((a,b)=>a+b,0)/v.length : null;
+}
+function teamStrengthNames(names, gm){
+  const v = (names||[]).filter(x => x && String(x).trim()).map(n => strengthOfName(n, gm));
+  return v.length ? v.reduce((a,b)=>a+b,0)/v.length : null;
+}
+// Forza delle due coppie di una partita extra/turno (dai nomi scelti), col metodo attualmente selezionato (Elo/Glicko-2).
+function pairStrengthHtml(a1,a2,b1,b2){
+  if(!a1 || !a2 || !b1 || !b2) return '';
+  const gm = strengthMap(), methodLabel = suggestBy === 'glicko' ? 'Glicko-2' : 'Elo';
+  const av = (strengthOfName(a1,gm) + strengthOfName(a2,gm)) / 2;
+  const bv = (strengthOfName(b1,gm) + strengthOfName(b2,gm)) / 2;
+  const diff = Math.abs(av - bv);
+  return '<p class="hint" style="margin-top:10px;"><b>Forza ('+methodLabel+'):</b> Coppia A '+Math.round(av)+' &middot; Coppia B '+Math.round(bv)+' &middot; differenza '+Math.round(diff)+' punti.</p>';
+}
+// Versione compatta, per una riga già salvata (partita extra in elenco): "Forza: 1005 – 983".
+function pairStrengthShort(names1, names2){
+  const gm = strengthMap();
+  const a = (names1||[]).map(n => strengthOfName(n,gm));
+  const b = (names2||[]).map(n => strengthOfName(n,gm));
+  if(!a.length || !b.length) return '';
+  const av = a.reduce((x,y)=>x+y,0)/a.length, bv = b.reduce((x,y)=>x+y,0)/b.length;
+  return '<span class="hint" style="display:block;margin-top:2px;">Forza: '+Math.round(av)+' &ndash; '+Math.round(bv)+'</span>';
+}
+let lastSuggest = null;   // { by, sig } dell'ultimo "Suggerisci abbinamenti", per avvisare se cambiando metodo le coppie restano identiche
+let suggestNote = '';
+// Forza usata per formare le coppie: Elo (dalla rubrica) oppure Glicko-2 (id -> rating).
+function strengthMap(){
+  if(suggestBy !== 'glicko') return null;
+  const m = {};
+  computeGlicko().forEach(r => { m[r.id] = r.rating; });
+  return m;
+}
+function suggestPairings(){
+  const ids = Array.from(selected).filter(k => roster[k]);
+  const names = ids.map(k => roster[k].name);
+  if(names.length < 4){ document.getElementById('setupErr').textContent = 'Seleziona almeno 4 partecipanti dalla rubrica.'; return; }
+  document.getElementById('setupErr').textContent = '';
+  const gm = strengthMap();
+  const withStats = ids.map(id => {
+    const pl = roster[id];
+    const strength = gm ? (gm[id] !== undefined ? gm[id] : START_ELO) : (pl.elo||START_ELO);
+    return { name:pl.name, elo: strength, key: strength, side: ignoreSides ? '' : (pl.side || '') };
+  });
+  const vals = withStats.map(w => w.elo), meanAll = vals.reduce((a,b)=>a+b,0)/vals.length;
+  const sd = Math.sqrt(vals.reduce((a,b)=>a+(b-meanAll)*(b-meanAll),0)/vals.length);
+  // Costo di un abbinamento: quanto le forze medie delle squadre si scostano dalla media (squadre equilibrate = costo basso),
+  // più una penalità morbida per ogni coppia con lo stesso lato dichiarato (Sx+Sx o Dx+Dx). I lati NON prevalgono mai sull'equilibrio:
+  // valgono come uno scostamento di circa mezza deviazione standard.
+  const sidePenalty = Math.pow(Math.max(6, sd*0.5), 2);
+  // useKey=true: ottimizza su forze leggermente "disturbate" (per far emergere alternative); false: costo reale.
+  function pairCost(tms, useKey){
+    const f = w => useKey ? w.key : w.elo;
+    const means = tms.map(t => (f(t[0]) + f(t[1]))/2);
+    const m = means.reduce((a,b)=>a+b,0)/means.length;
+    let c = 0;
+    means.forEach(x => { c += (x-m)*(x-m); });
+    tms.forEach(t => { if(t[0].side && t[1].side && t[0].side === t[1].side) c += sidePenalty; });
+    return c;
+  }
+  function shuffled(arr){ const a = arr.slice(); for(let i=a.length-1;i>0;i--){ const j = Math.floor(Math.random()*(i+1)); [a[i],a[j]] = [a[j],a[i]]; } return a; }
+  // Miglioramento locale: scambia due giocatori tra squadre diverse finché il costo scende.
+  function improve(tms, useKey){
+    let best = pairCost(tms, useKey), improved = true;
+    while(improved){
+      improved = false;
+      const moves = [];
+      for(let i=0;i<tms.length;i++) for(let j=i+1;j<tms.length;j++) for(let x=0;x<2;x++) for(let y=0;y<2;y++) moves.push([i,j,x,y]);
+      (useKey ? shuffled(moves) : moves).forEach(([i,j,x,y]) => {
+        const tmp = tms[i][x]; tms[i][x] = tms[j][y]; tms[j][y] = tmp;
+        const c = pairCost(tms, useKey);
+        if(c < best - 1e-9){ best = c; improved = true; } else { tms[j][y] = tms[i][x]; tms[i][x] = tmp; }
+      });
+    }
+    return best;
+  }
+  function buildCandidate(noisy){
+    const pool = withStats.map(w => ({...w, key: noisy ? w.elo + (Math.random()*2-1)*Math.max(8, sd*0.5) : w.elo}));
+    pool.sort((a,b)=> b.key - a.key);
+    const odd = pool.length % 2 === 1 ? pool.pop() : null;
+    const n = pool.length, tms = [];
+    for(let i=0;i<n/2;i++) tms.push([pool[i], pool[n-1-i]]);   // punto di partenza: il più forte col più debole
+    if(tms.length) improve(tms, noisy);
+    return { tms, odd, cost: tms.length ? pairCost(tms, false) : 0 };   // il costo si misura sempre sulle forze vere
+  }
+  let chosen;
+  if(varyPairs){
+    // Molti tentativi con rimescolamento tra forze simili; si sceglie a caso tra quelli quasi equilibrati come il migliore.
+    const cands = [], seen = new Set();
+    for(let k=0;k<80;k++){
+      const c = buildCandidate(true);
+      const sig = c.tms.map(t => [t[0].name,t[1].name].sort().join('+')).sort().join(';');
+      if(!seen.has(sig)){ seen.add(sig); cands.push(c); }
+    }
+    const bestCost = Math.min(...cands.map(c => c.cost));
+    const tol = bestCost*0.15 + cands[0].tms.length*Math.pow(0.15*sd, 2);
+    const good = cands.filter(c => c.cost <= bestCost + tol);
+    chosen = good[Math.floor(Math.random()*good.length)];
+  } else {
+    chosen = buildCandidate(false);
+  }
+  // Ordine nella squadra (p1=Sx, p2=Dx): si rispetta sempre la preferenza dichiarata da chi ce l'ha, anche se l'altro non ne ha una.
+  // Solo se nessuno dei due ha preferenza, o se le vogliono entrambi uguale (vero conflitto), decide la forza: il più forte a Sx.
+  const built = chosen.tms.map(t => {
+    let a = t[0], b = t[1];
+    let left, right;
+    if(a.side === 'S' && b.side !== 'S'){ left = a; right = b; }
+    else if(b.side === 'S' && a.side !== 'S'){ left = b; right = a; }
+    else if(a.side === 'D' && b.side !== 'D'){ left = b; right = a; }
+    else if(b.side === 'D' && a.side !== 'D'){ left = a; right = b; }
+    else if(a.elo >= b.elo){ left = a; right = b; }
+    else { left = b; right = a; }
+    return { a: left, b: right, top: Math.max(a.elo, b.elo) };
+  }).sort((x,y)=> y.top - x.top);
+  draftTeams = built.map((t,i) => ({ id:i, p1:t.a.name, p2:t.b.name }));
+  const odd = chosen.odd;
+  if(odd){ draftTeams.push({ id: draftTeams.length, p1: odd.name, p2:'' }); }
+  const sig = draftTeams.map(d => d.p1+'|'+d.p2).join(';');
+  const label = suggestBy === 'glicko' ? 'Glicko-2' : 'Elo', other = suggestBy === 'glicko' ? 'Elo' : 'Glicko-2';
+  if(varyPairs){
+    suggestNote = 'Coppie generate per '+label+' con un po\' di casualità tra giocatori di forza simile: premi ancora per un\'alternativa.';
+  } else if(lastSuggest && lastSuggest.by !== suggestBy){
+    suggestNote = (sig === lastSuggest.sig)
+      ? 'Coppie ricalcolate per '+label+': risultano identiche a quelle per '+other+', perché l\'ordine di forza dei partecipanti selezionati è lo stesso.'
+      : 'Coppie ricalcolate per '+label+' (diverse da quelle per '+other+').';
+  } else {
+    suggestNote = 'Coppie generate per '+label+'.';
+  }
+  lastSuggest = { by: suggestBy, sig };
+  render();
+}
+function addEmptyTeam(){ draftTeams.push({ id: draftTeams.length, p1:'', p2:'' }); suggestNote = ''; lastSuggest = null; render(); }
+function removeTeam(id){ draftTeams = draftTeams.filter(x=>x.id!==id); suggestNote = ''; lastSuggest = null; render(); }
+
+function assignSlot(teamId, field, newName){
+  const thisTeam = draftTeams.find(x=>x.id===teamId);
+  const oldVal = thisTeam[field];
+  if(newName !== ''){
+    draftTeams.forEach(dt => {
+      ['p1','p2'].forEach(f => {
+        if(!(dt.id===teamId && f===field) && dt[f] === newName){ dt[f] = oldVal; }
+      });
+    });
+  }
+  thisTeam[field] = newName;
+  suggestNote = ''; lastSuggest = null;
+  render();
+}
+
+function updateCourts(val){ t.courts = parseInt(val)||0; saveTournament(); }
+function updateRounds(val){ t.maxRounds = parseInt(val)||0; saveTournament(); }
+
+function startTournament(){
+  const valid = draftTeams.filter(dt => dt.p1 && dt.p1.trim());
+  if(!t.courts || t.courts < 1){ document.getElementById('setupErr').textContent = 'Indica quanti campi avete.'; return; }
+  if(!t.maxRounds || t.maxRounds < 1){ document.getElementById('setupErr').textContent = 'Indica quanti turni volete giocare.'; return; }
+  if(valid.length < 4){ document.getElementById('setupErr').textContent = 'Servono almeno 4 squadre.'; return; }
+  document.getElementById('setupErr').textContent = '';
+
+  const gmStart = strengthMap();
+  // Ordina per forza (più forte prima): il calendario classico e il 1° turno abbinano forte vs debole.
+  let teams = valid.map(dt => {
+    const players = [dt.p1, dt.p2].filter(x=>x && x.trim());
+    players.forEach(p => upsertPlayer(p));
+    const str = teamStrengthNames(players, gmStart);
+    return { name: players.join(' & '), players, wins:0, setsWon:0, setsLost:0, matchesPlayed:0, _str: str === null ? START_ELO : str };
+  }).sort((a,b)=> b._str - a._str || a.name.localeCompare(b.name));
+  teams.forEach((tm,i) => { tm.id = i; delete tm._str; });
+  saveRoster();
+
+  const courts = t.courts, maxRounds = t.maxRounds, unofficial = !!t.unofficial;
+  t = { phase:'playing', courts, maxRounds, unofficial, teams, round:0, played:[], currentMatches:[], history:[], restCounts:{}, courtCounts:{}, sideCounts:{}, extras:[] };
+  extraDraft = null;
+  roundDraft = {};
+  pairEdit = null;
+  teams.forEach(tm => {
+    t.restCounts[tm.id] = 0;
+    t.courtCounts[tm.id] = new Array(courts).fill(0);
+    t.sideCounts[tm.id] = { A:0, B:0 };
+  });
+
+  const n = teams.length;
+  if(n % 2 === 0 && courts >= n/2 && maxRounds === n-1){
+    t.useClassicSchedule = true;
+    // Con id già ordinati per forza: 1° turno = 1°vs ultimo, 2°vs penultimo, …
+    t.classicSchedule = classicSchedule(teams.map(tm=>tm.id));
+  }
+  saveTournament();
+  draftTeams = [];
+  suggestNote = ''; lastSuggest = null;
+  render();
+}
+
+// ---------- playing phase ----------
+
+function bestMatching(teamsList){
+  const poolIds = teamsList.map(x=>x.id);
+  const winsOf = {}; teamsList.forEach(tm => winsOf[tm.id] = tm.wins);
+  let best = null, bestCost = Infinity, nodeCount = 0;
+  const NODE_BUDGET = 60000;
+  function bt(remaining, current, cost){
+    if(nodeCount++ > NODE_BUDGET) return;
+    if(cost >= bestCost) return;
+    if(remaining.length === 0){ bestCost = cost; best = current.slice(); return; }
+    const a = remaining[0];
+    const rest = remaining.slice(1);
+    const ordered = [...rest].sort((x,y) => {
+      const rx = t.played.includes(pairKey(a,x)) ? 1 : 0;
+      const ry = t.played.includes(pairKey(a,y)) ? 1 : 0;
+      if(rx !== ry) return rx - ry;
+      return Math.abs(winsOf[x]-winsOf[a]) - Math.abs(winsOf[y]-winsOf[a]);
+    });
+    for(const b of ordered){
+      const rep = t.played.includes(pairKey(a,b)) ? 1 : 0;
+      const dist = Math.abs(winsOf[b]-winsOf[a]);
+      const newCost = cost + rep*10000 + dist;
+      if(newCost >= bestCost) continue;
+      current.push([a,b]);
+      bt(rest.filter(x=>x!==b), current, newCost);
+      current.pop();
+    }
+  }
+  bt(poolIds, [], 0);
+  return best || greedyMatching(poolIds);
+}
+
+function greedyMatching(poolIds){
+  const used = new Set();
+  const matches = [];
+  for(let i=0;i<poolIds.length;i++){
+    const a = poolIds[i];
+    if(used.has(a)) continue;
+    let opp = null;
+    for(let j=i+1;j<poolIds.length;j++){
+      const b = poolIds[j];
+      if(used.has(b)) continue;
+      if(!t.played.includes(pairKey(a,b))){ opp = b; break; }
+    }
+    if(opp===null){
+      for(let j=i+1;j<poolIds.length;j++){ const b = poolIds[j]; if(!used.has(b)){ opp = b; break; } }
+    }
+    if(opp===null) continue;
+    used.add(a); used.add(opp);
+    matches.push([a,opp]);
+  }
+  return matches;
+}
+
+function assignCourtsAndSides(matches){
+  if(!t.courtCounts) t.courtCounts = {};
+  if(!t.sideCounts) t.sideCounts = {};
+  if(!t.lastMeetingCourt) t.lastMeetingCourt = {};
+  if(!t.lastMeetingSide) t.lastMeetingSide = {};
+  t.teams.forEach(tm => {
+    if(!t.courtCounts[tm.id]) t.courtCounts[tm.id] = new Array(t.courts).fill(0);
+    if(!t.sideCounts[tm.id]) t.sideCounts[tm.id] = { A:0, B:0 };
+  });
+
+  const remainingCourts = matches.map((_,i)=>i);
+  const placement = new Array(matches.length).fill(null);
+  const decisions = []; // {court, a, b, onA, onB, pk} — counts committed only after all decided
+
+  matches.forEach(([a,b]) => {
+    const pk = pairKey(a,b);
+    let bestCourt = remainingCourts[0], bestCost = Infinity;
+    remainingCourts.forEach(c => {
+      let cost = (t.courtCounts[a][c]||0) + (t.courtCounts[b][c]||0);
+      if(t.lastMeetingCourt[pk] === c) cost += 0.5;
+      if(cost < bestCost){ bestCost = cost; bestCourt = c; }
+    });
+    const diffA = (t.sideCounts[a].A - t.sideCounts[a].B);
+    const diffB = (t.sideCounts[b].A - t.sideCounts[b].B);
+    let onA, onB;
+    if(diffA === diffB && t.lastMeetingSide[pk]){
+      onA = t.lastMeetingSide[pk] === a ? b : a;
+      onB = onA === a ? b : a;
+    } else {
+      [onA, onB] = diffA <= diffB ? [a,b] : [b,a];
+    }
+    decisions.push({ court: bestCourt, a, b, onA, onB, pk });
+    remainingCourts.splice(remainingCourts.indexOf(bestCourt), 1);
+  });
+
+  decisions.forEach(d => {
+    placement[d.court] = [d.onA, d.onB];
+    t.courtCounts[d.a][d.court]++; t.courtCounts[d.b][d.court]++;
+    t.sideCounts[d.onA].A++; t.sideCounts[d.onB].B++;
+    t.lastMeetingCourt[d.pk] = d.court;
+    t.lastMeetingSide[d.pk] = d.onA;
+  });
+
+  return placement.filter(x => x !== null);
+}
+
+function classicSchedule(teamIds){
+  const n = teamIds.length;
+  const fixed = teamIds[0];
+  let rotating = teamIds.slice(1);
+  const rounds = [];
+  for(let r=0;r<n-1;r++){
+    const arrangement = [fixed, ...rotating];
+    const pairs = [];
+    for(let i=0;i<n/2;i++){ pairs.push([arrangement[i], arrangement[n-1-i]]); }
+    rounds.push(pairs);
+    rotating = [rotating[rotating.length-1], ...rotating.slice(0, rotating.length-1)];
+  }
+  return rounds;
+}
+
+function undoLastRound(){
+  if(t.mode && t.mode !== 'fixed') return undoRotatingRound();
+  if(t.history.length === 0) return;
+  const last = t.history.pop();
+  const restoredMatches = new Array(last.matches.length);
+
+  last.matches.forEach(m => {
+    const A = t.teams.find(x=>x.id===m.aId), B = t.teams.find(x=>x.id===m.bId);
+    if(A){ A.setsWon -= m.s1; A.setsLost -= m.s2; A.matchesPlayed--; if(m.s1>m.s2) A.wins--; }
+    if(B){ B.setsWon -= m.s2; B.setsLost -= m.s1; B.matchesPlayed--; if(m.s2>m.s1) B.wins--; }
+    if(m.court !== undefined) restoredMatches[m.court] = [m.aId, m.bId];
+  });
+
+  t.currentMatches = restoredMatches.filter(x => x !== undefined);
+  t.restingThisRound = last.resting || [];
+  roundDraft = {};
+  pairEdit = null;
+  saveTournament();
+  render();
+}
+
+function generateRound(){
+  if(t.mode && t.mode !== 'fixed') return generateRotatingRound();
+  t.round++;
+
+  if(t.useClassicSchedule && t.classicSchedule && t.round <= t.classicSchedule.length){
+    const matches = t.classicSchedule[t.round-1];
+    const placed = assignCourtsAndSides(matches);
+    placed.forEach(m => t.played.push(pairKey(m[0],m[1])));
+    t.currentMatches = placed;
+    t.restingThisRound = [];
+    roundDraft = {};
+    pairEdit = null;
+    saveTournament();
+    render();
+    return;
+  }
+
+  const teams = t.teams;
+  const matchesPerRound = Math.min(t.courts, Math.floor(teams.length/2));
+  const restingCount = teams.length - matchesPerRound*2;
+
+  let restIds = [];
+  if(restingCount > 0){
+    const byRest = shuffle(teams).sort((a,b)=> (t.restCounts[a.id]||0) - (t.restCounts[b.id]||0));   // a parità di riposi si sceglie a caso (la lista è ordinata per forza)
+    restIds = byRest.slice(0, restingCount).map(x=>x.id);
+    restIds.forEach(id => t.restCounts[id] = (t.restCounts[id]||0) + 1);
+  }
+
+  const playing = teams.filter(tm => !restIds.includes(tm.id));
+  let matches;
+  if(t.round === 1){
+    // Primo turno: abbinamento per forza (non per ordine di inserimento / classifica a zero).
+    const gm = strengthMap();
+    const byStr = [...playing].sort((a,b)=>{
+      const sa = teamStrengthNames(a.players, gm), sb = teamStrengthNames(b.players, gm);
+      return (sb===null?START_ELO:sb) - (sa===null?START_ELO:sa) || a.name.localeCompare(b.name);
+    });
+    const arr = byStr.map(x=>x.id);
+    matches = [];
+    // squadre vicine per forza: 1ª-2ª, 3ª-4ª, … (partite equilibrate, come dal 2° turno in poi)
+    for(let i=0;i+1<arr.length;i+=2) matches.push([arr[i], arr[i+1]]);
+  } else {
+    const sorted = [...playing].sort(standingsSort);
+    const pool = sorted.map(x=>x.id);
+    matches = pool.length <= 12 ? bestMatching(sorted) : greedyMatching(pool);
+  }
+  const placed = assignCourtsAndSides(matches);
+  placed.forEach(m => t.played.push(pairKey(m[0],m[1])));
+  t.currentMatches = placed;
+  t.restingThisRound = restIds;
+  roundDraft = {};
+  pairEdit = null;
+  saveTournament();
+  render();
+}
+
+function toggleTbRow(idA, idB, rowId){
+  const e1 = document.getElementById(idA), e2 = document.getElementById(idB), row = document.getElementById(rowId);
+  if(!row) return;
+  row.style.display = (e1 && e2 && e1.value==='6' && e2.value==='6') ? '' : 'none';
+}
+// Salva nella bozza il punteggio digitato per un campo del turno in corso, così un render
+// (es. aggiungendo o togliendo una partita extra) non lo perde più.
+function setRoundScore(idx, field, val){
+  if(!roundDraft[idx]) roundDraft[idx] = {};
+  roundDraft[idx][field] = val;
+}
+
+// ---------- forzatura manuale degli abbinamenti nel turno in corso (fissi + Americano/Messicano) ----------
+function isRotatingMode(){ return !!(t.mode && t.mode !== 'fixed'); }
+function openPairEdit(){
+  if(!t.currentMatches || !t.currentMatches.length) return;
+  if(isRotatingMode()){
+    pairEdit = { type:'rotating', courts: t.currentMatches.map(m => ({ pa: m.pa.slice(), pb: m.pb.slice() })) };
+  } else {
+    // Squadre fisse: ogni match è [idA, idB]
+    pairEdit = { type:'fixed', courts: t.currentMatches.map(m => ({ a: m[0], b: m[1] })) };
+  }
+  render();
+}
+function cancelPairEdit(){ pairEdit = null; render(); }
+// --- Americano/Messicano: slot giocatore ---
+function setPairSlot(court, side, slot, id){
+  const courts = pairEdit.courts;
+  const oldVal = courts[court][side][slot];
+  if(id !== ''){
+    courts.forEach((c,ci) => {
+      ['pa','pb'].forEach(s => c[s].forEach((v,si) => {
+        if(!(ci===court && s===side && si===slot) && v === id){ c[s][si] = oldVal; }
+      }));
+    });
+  }
+  courts[court][side][slot] = id;
+  render();
+}
+function pairEditPlayers(){
+  const resting = t.restingThisRound || [];
+  return t.players.filter(id => !resting.includes(id)).map(id => ({ id, name: playerName(id) }));
+}
+function pairEditSelect(court, side, slot, players){
+  const cur = pairEdit.courts[court][side][slot];
+  const taken = [];
+  pairEdit.courts.forEach((c,ci) => { ['pa','pb'].forEach(s => c[s].forEach((id,si) => { if(!(ci===court && s===side && si===slot) && id) taken.push(id); })); });
+  let html = '<select onchange="setPairSlot('+court+',\''+side+'\','+slot+',this.value)"><option value="">—</option>';
+  players.forEach(p => {
+    html += '<option value="'+p.id+'"'+(cur===p.id?' selected':'')+'>'+esc(p.name)+(taken.includes(p.id)?' (occupato)':'')+'</option>';
+  });
+  return html + '</select>';
+}
+// --- Squadre fisse: slot squadra ---
+function setFixedTeamSlot(court, side, teamId){
+  const courts = pairEdit.courts;
+  const oldVal = courts[court][side];
+  const val = teamId === '' ? null : parseInt(teamId, 10);
+  if(val !== null && !isNaN(val)){
+    courts.forEach((c,ci) => {
+      ['a','b'].forEach(s => {
+        if(!(ci===court && s===side) && c[s] === val){ c[s] = oldVal; }
+      });
+    });
+  }
+  courts[court][side] = (val === null || isNaN(val)) ? null : val;
+  render();
+}
+function pairEditTeams(){
+  return t.teams.slice();   // anche le squadre a riposo: scegliendole, quella sostituita passa a riposo
+}
+function fixedTeamSelect(court, side, teams){
+  const cur = pairEdit.courts[court][side];
+  const taken = [];
+  pairEdit.courts.forEach((c,ci) => { ['a','b'].forEach(s => { if(!(ci===court && s===side) && c[s] !== null && c[s] !== undefined) taken.push(c[s]); }); });
+  let html = '<select onchange="setFixedTeamSlot('+court+',\''+side+'\',this.value)"><option value="">—</option>';
+  teams.forEach(tm => {
+    html += '<option value="'+tm.id+'"'+(cur===tm.id?' selected':'')+'>'+esc(tm.name)+(taken.includes(tm.id)?' (occupata)':'')+'</option>';
+  });
+  return html + '</select>';
+}
+function applyPairEdit(){
+  const err = document.getElementById('pairEditErr');
+  if(!pairEdit) return;
+  if(pairEdit.type === 'fixed'){
+    const courts = pairEdit.courts;
+    const ids = [];
+    courts.forEach(c => { ids.push(c.a, c.b); });
+    if(ids.some(id => id === null || id === undefined || id === '')){ err.textContent = 'Scegli entrambe le squadre in ogni campo.'; return; }
+    if(new Set(ids).size !== ids.length){ err.textContent = 'Ogni squadra può comparire una sola volta.'; return; }
+    // Aggiorna gli incontri già registrati in "played" (togli il turno corrente, metti i nuovi).
+    const oldKeys = (t.currentMatches || []).map(m => pairKey(m[0], m[1]));
+    const newKeys = courts.map(c => pairKey(c.a, c.b));
+    const changed = oldKeys.slice().sort().join('|') !== newKeys.slice().sort().join('|');
+    t.played = (t.played || []).filter(k => !oldKeys.includes(k));
+    newKeys.forEach(k => t.played.push(k));
+    t.currentMatches = courts.map(c => [c.a, c.b]);
+    // Chi riposa può cambiare: aggiorna i contatori dei riposi.
+    const oldRest = (t.restingThisRound || []).slice();
+    const newRest = t.teams.map(tm => tm.id).filter(id => !ids.includes(id));
+    oldRest.forEach(id => { if(!newRest.includes(id)) t.restCounts[id] = Math.max(0, (t.restCounts[id]||0) - 1); });
+    newRest.forEach(id => { if(!oldRest.includes(id)) t.restCounts[id] = (t.restCounts[id]||0) + 1; });
+    t.restingThisRound = newRest;
+    // Un abbinamento forzato rompe il girone all'italiana precalcolato: dai turni successivi si
+    // abbina in base alle partite già giocate (nessuna ripetizione finché possibile).
+    if(changed && t.useClassicSchedule){ t.useClassicSchedule = false; delete t.classicSchedule; }
+  } else {
+    const courts = pairEdit.courts;
+    const allIds = [];
+    courts.forEach(c => { allIds.push(c.pa[0], c.pa[1], c.pb[0], c.pb[1]); });
+    if(allIds.some(id => !id)){ err.textContent = 'Scegli tutti i giocatori in ogni campo.'; return; }
+    if(new Set(allIds).size !== allIds.length){ err.textContent = 'Ogni giocatore può comparire una sola volta.'; return; }
+    t.currentMatches = t.currentMatches.map((m,idx) => ({
+      ...m,
+      pa: courts[idx].pa.slice(),
+      pb: courts[idx].pb.slice(),
+      aName: courts[idx].pa.map(playerName).join(' & '),
+      bName: courts[idx].pb.map(playerName).join(' & ')
+    }));
+  }
+  pairEdit = null;
+  roundDraft = {};
+  saveTournament();
+  render();
+}
+function scoreIsPlausible(s1, s2){
+  if(!Number.isInteger(s1) || !Number.isInteger(s2) || s1<0 || s2<0) return false;
+  if(Math.max(s1,s2) > 6 && Math.abs(s1-s2) > 2) return false;   // sopra il 6 la partita è già conclusa con 2 game di scarto
+  return true;
+}
+
+function submitResults(){
+  if(t.mode && t.mode !== 'fixed') return submitRotatingResults();
+  let valid = true;
+  t.currentMatches.forEach((m,idx) => {
+    const s1raw = document.getElementById('s1_'+idx).value;
+    const s2raw = document.getElementById('s2_'+idx).value;
+    if(s1raw===''||s2raw===''){ valid = false; return; }
+    const s1 = Number(s1raw), s2 = Number(s2raw);
+    if(!scoreIsPlausible(s1, s2)){ valid = false; return; }
+    if(isTiedSix(s1, s2)){
+      const tb1raw = document.getElementById('tb1_'+idx).value, tb2raw = document.getElementById('tb2_'+idx).value;
+      if(tb1raw===''||tb2raw===''||!tiebreakIsPlausible(Number(tb1raw), Number(tb2raw))){ valid = false; }
+    }
+  });
+  if(!valid){ document.getElementById('err').textContent = 'Controlla i punteggi: sopra il 6 lo scarto può essere al massimo di 2 game; sul 6-6 inserisci anche il tie-break (chi arriva a 7 con almeno 2 di scarto).'; return; }
+
+  const roundResults = [];
+  t.currentMatches.forEach((m,idx) => {
+    const s1 = parseInt(document.getElementById('s1_'+idx).value);
+    const s2 = parseInt(document.getElementById('s2_'+idx).value);
+    const tb = isTiedSix(s1, s2) ? [parseInt(document.getElementById('tb1_'+idx).value), parseInt(document.getElementById('tb2_'+idx).value)] : undefined;
+    const t1 = t.teams.find(x=>x.id===m[0]);
+    const t2 = t.teams.find(x=>x.id===m[1]);
+    t1.setsWon += s1; t1.setsLost += s2; t1.matchesPlayed++;
+    t2.setsWon += s2; t2.setsLost += s1; t2.matchesPlayed++;
+    const win = matchWinner(s1, s2, tb);
+    if(win===1) t1.wins++; else if(win===0) t2.wins++;
+    roundResults.push({aId:t1.id, bId:t2.id, a:t1.name, b:t2.name, s1, s2, tb, court:idx});
+  });
+  t.history.push({round:t.round, resting:(t.restingThisRound||[]), matches:roundResults});
+  t.currentMatches = [];
+  roundDraft = {};
+  pairEdit = null;
+  saveTournament();
+  render();
+}
+
+function finishTournament(){
+  ratingSummary = null;
+  const rotating = !!(t.mode && t.mode !== 'fixed');
+  if((t.round > 0 || (t.extras||[]).length > 0) && !t.unofficial){
+    const teamPlayers = id => { const tm = t.teams.find(x=>x.id===id); return tm ? tm.players : []; };
+    const entry = rotating ? {
+      date: new Date().toISOString(),
+      courts: t.courts,
+      maxRounds: t.maxRounds,
+      roundsPlayed: t.round,
+      mode: t.mode,
+      players: t.players.slice(),
+      history: t.history,
+      extras: (t.extras || []).map(x => ({ ...x, idsA: x.teamA.map(resolveId), idsB: x.teamB.map(resolveId) })),
+      ratingChanges: []
+    } : {
+      date: new Date().toISOString(),
+      courts: t.courts,
+      maxRounds: t.maxRounds,
+      roundsPlayed: t.round,
+      teams: t.teams.map(tm => ({ name: tm.name, playerIds: tm.players.map(resolveId), wins: tm.wins, setsWon: tm.setsWon, setsLost: tm.setsLost })),
+      history: t.history.map(h => ({ ...h, matches: h.matches.map(m => ({ ...m, pa: teamPlayers(m.aId).map(resolveId), pb: teamPlayers(m.bId).map(resolveId) })) })),
+      extras: (t.extras || []).map(x => ({ ...x, idsA: x.teamA.map(resolveId), idsB: x.teamB.map(resolveId) })),
+      ratingChanges: []
+    };
+    archive.push(entry);
+    while(archive.length > ARCHIVE_MAX){ foldArchiveEntryIntoBase(archive.shift()); }
+    // I rating non si aggiornano a mano: si ricalcolano dall'archivio (che ora include questo torneo).
+    recomputeRatings();
+    if(entry.ratingChanges.length) ratingSummary = entry.ratingChanges;
+    saveRoster();
+    saveArchive();
+  }
+  t = { phase:'setup', courts:t.courts, maxRounds:t.maxRounds, teams:[], round:0, played:[], currentMatches:[], history:[], restCounts:{}, extras:[] };
+  extraDraft = null;
+  roundDraft = {};
+  pairEdit = null;
+  saveTournament();
+  resetArmed = false;
+  render();
+}
+
+function resetAll(){
+  if(!resetArmed){ resetArmed = true; render(); return; }
+  const courts = t.courts, maxRounds = t.maxRounds;
+  t = { phase:'setup', courts, maxRounds, teams:[], round:0, played:[], currentMatches:[], history:[], restCounts:{}, extras:[] };
+  extraDraft = null;
+  roundDraft = {};
+  pairEdit = null;
+  saveTournament();
+  resetArmed = false;
+  render();
+}
+function cancelReset(){ resetArmed = false; render(); }
+
+// ---------- export / import ----------
+
+async function saveFile(filename, blob){
+  try{
+    if(typeof claude !== 'undefined' && claude.use){
+      const downloads = await claude.use('downloads');
+      if(downloads){ await downloads.save({ filename, data: blob }); return true; }
+    }
+  }catch(e){ /* fall through to plain browser download */ }
+  try{
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url), 2000);
+    return true;
+  }catch(e2){ return false; }
+}
+
+function timestampForFilename(){
+  const d = new Date();
+  const p = n => String(n).padStart(2,'0');
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'_'+p(d.getHours())+p(d.getMinutes());
+}
+async function exportData(){
+  dataMsg = 'Preparazione backup…';
+  render();
+  try{
+    if(typeof JSZip === 'undefined'){ dataMsg = 'Libreria di esportazione non caricata (controlla la connessione e riprova).'; render(); return; }
+    const zip = new JSZip();
+    zip.file('roster.json', JSON.stringify(roster, null, 2));
+    zip.file('tournament.json', JSON.stringify(t, null, 2));
+    zip.file('archive.json', JSON.stringify(archive, null, 2));
+    const blob = await zip.generateAsync({type:'blob'});
+    const ok = await saveFile('torneo-padel-backup-'+timestampForFilename()+'.zip', blob);
+    if(ok) markBackup();
+    dataMsg = ok ? 'Backup salvato.' : 'Esportazione annullata o non riuscita.';
+  }catch(e){
+    dataMsg = 'Esportazione non riuscita'+(e && e.message ? ': '+e.message : '')+'.';
+  }
+  render();
+}
+
+function triggerImport(){ const el = document.getElementById('importFile'); if(el) el.click(); }
+
+function handleImportFile(file){
+  if(!file){ dataMsg = 'Nessun file selezionato.'; render(); return; }
+  if(typeof JSZip === 'undefined'){ dataMsg = 'Libreria di importazione non caricata.'; render(); return; }
+  dataMsg = 'Importazione in corso…';
+  render();
+  const reader = new FileReader();
+  reader.onload = async function(e){
+    try{
+      const zip = await JSZip.loadAsync(e.target.result);
+      const rf = zip.file('roster.json');
+      const tf = zip.file('tournament.json');
+      const af = zip.file('archive.json');
+      if(!rf && !tf && !af){ dataMsg = 'Il file non contiene dati riconoscibili.'; render(); return; }
+      if(rf){ roster = normalizeRoster(JSON.parse(await rf.async('string'))); saveRoster(); }
+      if(tf){ t = normalizeTournament(JSON.parse(await tf.async('string'))); saveTournament(); extraDraft = null; roundDraft = {}; pairEdit = null; }
+      if(af){ archive = normalizeArchive(JSON.parse(await af.async('string'))); }
+      // Id nascosti e rating ricalcolati dall'archivio (anche per backup di versioni precedenti).
+      ensureArchiveIds();
+      recomputeRatings();
+      if(rf) saveRoster();
+      if(af) saveArchive();
+      ratingMigration = false;
+      dataMsg = 'Dati importati.';
+    }catch(err){
+      dataMsg = 'File non valido'+(err && err.message ? ': '+err.message : '')+'.';
+    }
+    render();
+  };
+  reader.onerror = function(){ dataMsg = 'Lettura del file non riuscita.'; render(); };
+  reader.readAsArrayBuffer(file);
+}
+
+// ---------- render ----------
+
+function unsavedTournaments(){
+  const lb = getLastBackup();
+  return archive.filter(a => !lb || new Date(a.date) > new Date(lb)).length;
+}
+// Promemoria: l'archivio è l'unica fonte dei rating e vive solo nel browser.
+function backupBanner(){
+  const n = unsavedTournaments();
+  if(archive.length === 0 || n === 0) return '';
+  const lb = getLastBackup();
+  const when = lb ? 'Ultimo backup: '+new Date(lb).toLocaleDateString('it-IT')+'.' : 'Non hai ancora fatto nessun backup.';
+  return '<div class="banner"><p style="margin:0 0 10px;"><b>Backup da aggiornare.</b> '+n+(n===1 ? ' torneo archiviato non è' : ' tornei archiviati non sono')+' ancora nel backup. '+when+' I dati vivono solo in questo browser.</p><button class="primary" onclick="exportData()">Scarica backup</button></div>';
+}
+
+function dataSection(){
+  let html = '<section><p class="section-label">Dati</p>';
+  html += '<div class="data-row"><button class="ghost" onclick="exportData()">Esporta (.zip)</button>';
+  html += '<label class="ghost" for="importFile" style="cursor:pointer;">Importa</label></div>';
+  html += '<input type="file" id="importFile" accept=".zip" onchange="handleImportFile(this.files[0])" />';
+  html += '<p class="hint" style="margin-top:8px;">Tornei archiviati: '+archive.length+' (ultimi '+ARCHIVE_MAX+')'+(getLastBackup() ? ' · ultimo backup: '+new Date(getLastBackup()).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : ' · nessun backup ancora')+'</p>';
+  if(dataMsg){ html += '<p class="hint" style="margin-top:8px;">'+dataMsg+'</p>'; }
+  html += '</section>';
+  return html;
+}
+
+function teamKeyIds(ids){ return [...ids].sort().join('|'); }
+
+function teamStats(list, includeLive){
+  list = list || archive;
+  if(includeLive === undefined) includeLive = true;
+  const map = {};
+  const byId = roster;  // la chiave della rubrica È l'id
+  function addToMap(name, players, ids, wins, setsWon, setsLost, matches){
+    if(!ids || ids.length===0) return;
+    const key = teamKeyIds(ids);
+    // Nomi attuali dei giocatori (se sono stati rinominati), altrimenti quelli registrati.
+    const cur = ids.map((id,i) => byId[id] ? byId[id].name : ((players && players[i]) || id));
+    if(!map[key]) map[key] = { key, name, players:cur, ids, matches:0, wins:0, setsWon:0, setsLost:0 };
+    map[key].name = cur.join(' & ');
+    map[key].players = cur;
+    map[key].matches += matches;
+    map[key].wins += wins;
+    map[key].setsWon += setsWon;
+    map[key].setsLost += setsLost;
+  }
+  list.forEach(a => {
+    if(a.mode && a.mode !== 'fixed') return;   // Americano/Messicano non hanno squadre fisse: non entrano nella classifica squadre
+    if(a.excluded) return;                      // torneo escluso dalle classifiche
+    (a.teams||[]).forEach(tm => {
+      let matches = 0;
+      (a.history||[]).forEach(h => h.matches.forEach(m => { if(m.a===tm.name || m.b===tm.name) matches++; }));
+      const plist = tm.players || tm.name.split(' & ');
+      addToMap(tm.name, plist, tm.playerIds || plist.map(resolveId), tm.wins, tm.setsWon, tm.setsLost, matches);
+    });
+  });
+  if(includeLive && !t.unofficial && t.teams && t.teams.length){
+    t.teams.forEach(tm => addToMap(tm.name, tm.players, tm.players.map(resolveId), tm.wins, tm.setsWon, tm.setsLost, tm.matchesPlayed||0));
+  }
+  return Object.values(map);
+}
+
+function computeRanks(list, keyFn){
+  const keys = list.map(keyFn);
+  const out = [];
+  let lastKey = null, lastRank = 0;
+  keys.forEach((key,i) => {
+    const rank = (i>0 && key===lastKey) ? lastRank : i+1;
+    out.push(rank);
+    lastKey = key; lastRank = rank;
+  });
+  return out.map((rank,i) => ({ rank, tied: (i>0 && keys[i-1]===keys[i]) || (i<keys.length-1 && keys[i+1]===keys[i]) }));
+}
+function rankLabel(r){ return (r.tied ? '=' : '') + r.rank; }
+
+function teamRankingView(){
+  const list = teamStats().filter(x=>x.matches>0).sort((a,b)=>{
+    const wa = a.wins/a.matches, wb = b.wins/b.matches;
+    return wb-wa || (b.setsWon-b.setsLost)-(a.setsWon-a.setsLost) || a.name.localeCompare(b.name);
+  });
+  let html = '<section><p class="section-label">Classifica squadre</p>';
+  html += '<p class="hint">Aggrega tutte le volte in cui una stessa coppia ha giocato insieme, tornei di prova esclusi. Le frecce mostrano il cambio di posizione dovuto all\'ultimo torneo archiviato.</p>';
+  if(list.length === 0){
+    html += '<p class="roster-empty">Nessuna squadra con partite giocate ancora.</p>';
+  } else {
+    html += '<div class="rank-list">';
+    const ranks = computeRanks(list, tm => Math.round((tm.wins/tm.matches)*100));
+    const mvTeams = movement(positionsTeams);
+    list.forEach((tm,i) => {
+      const wr = Math.round((tm.wins/tm.matches)*100);
+      const r = ranks[i];
+      html += '<div class="rank-row'+(r.rank===1?' top1':'')+'"><span class="rank-num'+(r.tied?' tied':'')+'">'+rankLabel(r)+'</span>';
+      html += '<span class="rank-name">'+esc(tm.name)+'</span>';
+      html += arrow(mvTeams, tm.key);
+      html += '<span class="rank-elo">'+wr+'%</span>';
+      html += '<span class="rank-meta">'+tm.matches+' partite</span></div>';
+    });
+    html += '</div>';
+  }
+  html += '</section>';
+  return html;
+}
+
+let editingArchiveIdx = null;
+let archiveFilterYear = '';
+let archiveFilterMonth = '';
+let archiveFilterMode = '';
+let archiveFilterPlayer = '';
+let archiveSearchText = '';
+let archivePageSize = 20;
+let archiveOpenMonths = null;   // Set delle chiavi mese ('YYYY-MM') espanse; null = non ancora inizializzato (si apre solo il mese più recente)
+function setArchiveFilterYear(v){ archiveFilterYear = v; archivePageSize = 20; render(); }
+function setArchiveFilterMonth(v){ archiveFilterMonth = v; archivePageSize = 20; render(); }
+function setArchiveFilterMode(v){ archiveFilterMode = v; archivePageSize = 20; render(); }
+function setArchiveFilterPlayer(v){ archiveFilterPlayer = v; archivePageSize = 20; render(); }
+function setArchiveSearchText(v){ archiveSearchText = v; archivePageSize = 20; render(); }
+function clearArchiveFilters(){ archiveFilterYear=''; archiveFilterMonth=''; archiveFilterMode=''; archiveFilterPlayer=''; archiveSearchText=''; archivePageSize = 20; render(); }
+function showMoreArchive(){ archivePageSize += 20; render(); }
+function toggleArchiveMonth(key){
+  if(!archiveOpenMonths) archiveOpenMonths = new Set();
+  if(archiveOpenMonths.has(key)) archiveOpenMonths.delete(key); else archiveOpenMonths.add(key);
+  render();
+}
+// Nomi di tutti i partecipanti di un torneo archiviato (squadre fisse o Americano/Messicano), per filtri e ricerca.
+function archiveParticipantNames(a){
+  if(a.mode && a.mode !== 'fixed'){
+    const nm = archiveIdNames(a);
+    return (a.players||[]).map(id => nm[id] || (roster[id] && roster[id].name) || id);
+  }
+  const out = [];
+  (a.teams||[]).forEach(tm => (tm.name ? tm.name.split(' & ') : []).forEach(n => out.push(n)));
+  return out;
+}
+let deleteArchiveArmed = null;
+let archiveExtraDraft = null;  // bozza della partita extra aggiunta a posteriori a un torneo archiviato
+let archiveRoundDraft = null;  // bozza di un turno ufficiale (Americano/Messicano) aggiunto a posteriori, con abbinamenti forzati
+let archiveRemoveConfirm = null;  // { type:'extra'|'round', i, id|hi/mi, desc } — conferma richiesta prima di eliminare una singola partita
+function toggleArchiveExpand(idx){ expandedArchiveIdx = (expandedArchiveIdx===idx) ? null : idx; editingArchiveIdx = null; deleteArchiveArmed = null; archiveExtraDraft = null; archiveRoundDraft = null; archiveRemoveConfirm = null; render(); }
+function startArchiveEdit(i){ editingArchiveIdx = i; deleteArchiveArmed = null; archiveExtraDraft = null; archiveRoundDraft = null; archiveRemoveConfirm = null; render(); }
+function cancelArchiveEdit(){ editingArchiveIdx = null; render(); }
+function askDeleteArchive(i){ deleteArchiveArmed = i; editingArchiveIdx = null; render(); }
+function cancelDeleteArchive(){ deleteArchiveArmed = null; render(); }
+function cancelArchiveRemoveConfirm(){ archiveRemoveConfirm = null; render(); }
+function confirmArchiveRemove(){
+  const c = archiveRemoveConfirm;
+  if(!c) return;
+  archiveRemoveConfirm = null;
+  if(c.type === 'extra') removeArchiveExtra(c.i, c.id);
+  else removeArchiveRoundMatch(c.i, c.hi, c.mi);
+}
+function toggleArchiveExclude(i){
+  const a = archive[i];
+  a.excluded = !a.excluded;
+  recomputeRatings();
+  ratingSummary = null;
+  saveArchive(); saveRoster();
+  render();
+}
+function confirmDeleteArchive(i){
+  archive.splice(i, 1);
+  recomputeRatings();
+  ratingSummary = null;
+  saveArchive(); saveRoster();
+  deleteArchiveArmed = null; expandedArchiveIdx = null;
+  render();
+}
+// Le statistiche di squadra di un torneo archiviato si ricavano dai suoi turni.
+// Classifica individuale di un torneo Americano/Messicano archiviato, ricavata dai suoi turni.
+function archivePlayerStandings(a){
+  const byId = roster;  // la chiave della rubrica È l'id
+  const st = {};
+  (a.players || []).forEach(id => { st[id] = { id, matches:0, wins:0, gW:0, gL:0 }; });
+  (a.history || []).forEach(h => h.matches.forEach(m => {
+    const win = matchWinner(m.s1, m.s2, m.tb);
+    (m.pa || []).forEach(id => { if(!st[id]) st[id] = { id, matches:0, wins:0, gW:0, gL:0 }; st[id].matches++; st[id].gW += m.s1; st[id].gL += m.s2; if(win===1) st[id].wins++; });
+    (m.pb || []).forEach(id => { if(!st[id]) st[id] = { id, matches:0, wins:0, gW:0, gL:0 }; st[id].matches++; st[id].gW += m.s2; st[id].gL += m.s1; if(win===0) st[id].wins++; });
+  }));
+  return Object.values(st).map(r => ({ ...r, name: byId[r.id] ? byId[r.id].name : r.id }))
+    .sort((x,y)=> y.wins-x.wins || (y.gW-y.gL)-(x.gW-x.gL) || y.gW-x.gW || x.name.localeCompare(y.name));
+}
+
+function recomputeTeamAggregates(a){
+  a.teams.forEach(tm => { tm.wins = 0; tm.setsWon = 0; tm.setsLost = 0; });
+  (a.history || []).forEach(h => h.matches.forEach(m => {
+    const A = a.teams[m.aId], B = a.teams[m.bId];
+    const win = matchWinner(m.s1, m.s2, m.tb);
+    if(A){ A.setsWon += m.s1; A.setsLost += m.s2; if(win===1) A.wins++; }
+    if(B){ B.setsWon += m.s2; B.setsLost += m.s1; if(win===0) B.wins++; }
+  }));
+}
+function saveArchiveEdit(i){
+  const a = archive[i];
+  const err = document.getElementById('archErr');
+  const readPair = (idA, idB) => {
+    const r1 = document.getElementById(idA).value, r2 = document.getElementById(idB).value;
+    if(r1 === '' || r2 === '') return null;
+    return [Number(r1), Number(r2)];
+  };
+  const readTb = (idA, idB, sc) => {
+    if(!isTiedSix(sc[0], sc[1])) return { ok:true, tb: undefined };
+    const el1 = document.getElementById(idA), el2 = document.getElementById(idB);
+    const r1 = el1 ? el1.value : '', r2 = el2 ? el2.value : '';
+    if(r1==='' || r2==='' || !tiebreakIsPlausible(Number(r1), Number(r2))) return { ok:false };
+    return { ok:true, tb: [Number(r1), Number(r2)] };
+  };
+  const updates = [];
+  for(let hi = 0; hi < (a.history||[]).length; hi++){
+    for(let mi = 0; mi < a.history[hi].matches.length; mi++){
+      const sc = readPair('ea_'+hi+'_'+mi+'_1', 'ea_'+hi+'_'+mi+'_2');
+      if(!sc || !scoreIsPlausible(sc[0], sc[1])){ err.textContent = 'Turno '+a.history[hi].round+': punteggio non valido (numeri interi; sopra il 6 lo scarto è al massimo 2).'; return; }
+      const tbr = readTb('ea_'+hi+'_'+mi+'_tb1', 'ea_'+hi+'_'+mi+'_tb2', sc);
+      if(!tbr.ok){ err.textContent = 'Turno '+a.history[hi].round+': sul 6-6 serve il punteggio del tie-break (7 con almeno 2 di scarto).'; return; }
+      updates.push(() => { a.history[hi].matches[mi].s1 = sc[0]; a.history[hi].matches[mi].s2 = sc[1]; a.history[hi].matches[mi].tb = tbr.tb; });
+    }
+  }
+  for(let xi = 0; xi < (a.extras||[]).length; xi++){
+    const sc = readPair('ex_'+xi+'_1', 'ex_'+xi+'_2');
+    if(!sc || !scoreIsPlausible(sc[0], sc[1]) || sc[0]+sc[1] === 0){ err.textContent = 'Partita extra '+(xi+1)+': punteggio non valido.'; return; }
+    const tbr = readTb('ex_'+xi+'_tb1', 'ex_'+xi+'_tb2', sc);
+    if(!tbr.ok){ err.textContent = 'Partita extra '+(xi+1)+': sul 6-6 serve il punteggio del tie-break (7 con almeno 2 di scarto).'; return; }
+    const rating = document.getElementById('ex_'+xi+'_r').value;
+    updates.push(() => {
+      const x = a.extras[xi];
+      x.s1 = sc[0]; x.s2 = sc[1]; x.tb = tbr.tb; x.rating = rating;
+      x.weight = rating==='full' ? 1 : (rating==='reduced' ? EXTRA_K_FACTOR : 0);
+    });
+  }
+  updates.forEach(fn => fn());
+  if(!a.mode || a.mode === 'fixed'){ recomputeTeamAggregates(a); }
+  recomputeRatings();
+  ratingSummary = null;
+  saveArchive(); saveRoster();
+  editingArchiveIdx = null;
+  render();
+}
+
+// Elenco giocatori coinvolti in un torneo archiviato, per il modulo "aggiungi partita extra" a posteriori.
+function archiveExtraPlayers(a){
+  const names = [];
+  if(a.mode && a.mode !== 'fixed'){
+    const nm = archiveIdNames(a);
+    (a.players||[]).forEach(id => { const n = nm[id] || (roster[id] && roster[id].name); if(n && !names.includes(n)) names.push(n); });
+  } else {
+    (a.teams||[]).forEach(tm => (tm.name ? tm.name.split(' & ') : []).forEach(p => { if(!names.includes(p)) names.push(p); }));
+  }
+  return names.sort((x,y)=> x.localeCompare(y));
+}
+function openArchiveExtraForm(i){ archiveExtraDraft = { idx:i, a1:'', a2:'', b1:'', b2:'', s1:'', s2:'', tb1:'', tb2:'', rating:'reduced' }; render(); }
+function closeArchiveExtraForm(){ archiveExtraDraft = null; render(); }
+function setArchiveExtraField(field, val){
+  const d = archiveExtraDraft, oldVal = d[field];
+  if(val !== ''){
+    ['a1','a2','b1','b2'].forEach(f => { if(f !== field && d[f] === val){ d[f] = oldVal; } });
+  }
+  d[field] = val;
+  render();
+}
+function archiveExtraSelect(field, players){
+  const d = archiveExtraDraft;
+  const taken = ['a1','a2','b1','b2'].filter(f => f!==field).map(f => d[f]).filter(Boolean);
+  let html = '<select onchange="setArchiveExtraField(\''+field+'\',this.value)"><option value="">—</option>';
+  players.forEach(n => { html += '<option value="'+esc(n)+'"'+(d[field]===n?' selected':'')+'>'+esc(n)+(taken.includes(n)?' (occupato)':'')+'</option>'; });
+  return html + '</select>';
+}
+function saveArchiveExtra(){
+  const d = archiveExtraDraft;
+  const a = archive[d.idx];
+  const err = document.getElementById('archiveExtraErr');
+  const names = [d.a1, d.a2, d.b1, d.b2];
+  if(names.some(n => !n)){ err.textContent = 'Scegli tutti e quattro i giocatori.'; return; }
+  if(new Set(names).size !== 4){ err.textContent = 'Ogni giocatore può comparire una sola volta.'; return; }
+  const s1 = Number(d.s1), s2 = Number(d.s2);
+  const isInt = Number.isInteger(s1) && Number.isInteger(s2) && s1>=0 && s2>=0;
+  if(d.s1==='' || d.s2==='' || !isInt || s1+s2===0){
+    err.textContent = 'Inserisci un punteggio con numeri interi (va bene anche una partita interrotta).'; return;
+  }
+  if(!scoreIsPlausible(s1, s2)){
+    err.textContent = 'Sopra il 6 lo scarto può essere al massimo di 2 game: la partita sarebbe già finita.'; return;
+  }
+  let tb;
+  if(isTiedSix(s1, s2)){
+    const tb1 = Number(d.tb1), tb2 = Number(d.tb2);
+    if(d.tb1==='' || d.tb2==='' || !tiebreakIsPlausible(tb1, tb2)){
+      err.textContent = 'Sul 6-6 inserisci il punteggio del tie-break (chi arriva a 7 con almeno 2 di scarto).'; return;
+    }
+    tb = [tb1, tb2];
+  }
+  const rating = d.rating;
+  const weight = rating==='full' ? 1 : (rating==='reduced' ? EXTRA_K_FACTOR : 0);
+  if(!a.extras) a.extras = [];
+  a.extras.push({ id: Date.now(), teamA:[d.a1,d.a2], teamB:[d.b1,d.b2], s1, s2, tb, rating, weight, idsA:[d.a1,d.a2].map(resolveId), idsB:[d.b1,d.b2].map(resolveId) });
+  archiveExtraDraft = null;
+  recomputeRatings();
+  ratingSummary = null;
+  saveArchive(); saveRoster();
+  render();
+}
+function removeArchiveExtra(i, id){
+  const a = archive[i];
+  a.extras = (a.extras||[]).filter(x => x.id !== id);
+  recomputeRatings();
+  ratingSummary = null;
+  saveArchive(); saveRoster();
+  render();
+}
+function askRemoveArchiveExtra(i, id){
+  const a = archive[i];
+  const x = (a.extras||[]).find(e => e.id === id);
+  if(!x) return;
+  archiveRemoveConfirm = { type:'extra', i, id, desc: x.teamA.join(' & ')+' vs '+x.teamB.join(' & ')+' ('+x.s1+'-'+x.s2+')' };
+  render();
+}
+// Sposta una partita extra archiviata in un turno ufficiale: da quel momento conta nella classifica V/game del torneo (solo Americano/Messicano).
+function moveArchiveExtraToRound(i, id){
+  const a = archive[i];
+  const x = (a.extras||[]).find(e => e.id === id);
+  if(!x) return;
+  a.extras = a.extras.filter(e => e.id !== id);
+  a.roundsPlayed = (a.roundsPlayed||0) + 1;
+  if(!a.history) a.history = [];
+  a.history.push({ round: a.roundsPlayed, resting: [], matches: [{ pa: x.idsA||[], pb: x.idsB||[], a: x.teamA.join(' & '), b: x.teamB.join(' & '), s1: x.s1, s2: x.s2, tb: x.tb, court: 0 }] });
+  recomputeRatings();
+  ratingSummary = null;
+  saveArchive(); saveRoster();
+  render();
+}
+
+// Turno ufficiale (Americano/Messicano) aggiunto a posteriori a un torneo archiviato, con abbinamenti scelti a mano:
+// a differenza delle partite extra, conta nella classifica V/game del torneo (perché entra in a.history).
+function openArchiveRoundForm(i){ archiveRoundDraft = { idx:i, a1:'', a2:'', b1:'', b2:'', s1:'', s2:'', tb1:'', tb2:'' }; render(); }
+function closeArchiveRoundForm(){ archiveRoundDraft = null; render(); }
+function setArchiveRoundField(field, val){
+  const d = archiveRoundDraft, oldVal = d[field];
+  if(val !== ''){
+    ['a1','a2','b1','b2'].forEach(f => { if(f !== field && d[f] === val){ d[f] = oldVal; } });
+  }
+  d[field] = val;
+  render();
+}
+function archiveRoundSelect(field, players){
+  const d = archiveRoundDraft;
+  const taken = ['a1','a2','b1','b2'].filter(f => f!==field).map(f => d[f]).filter(Boolean);
+  let html = '<select onchange="setArchiveRoundField(\''+field+'\',this.value)"><option value="">—</option>';
+  players.forEach(n => { html += '<option value="'+esc(n)+'"'+(d[field]===n?' selected':'')+'>'+esc(n)+(taken.includes(n)?' (occupato)':'')+'</option>'; });
+  return html + '</select>';
+}
+function saveArchiveRound(){
+  const d = archiveRoundDraft;
+  const a = archive[d.idx];
+  const err = document.getElementById('archiveRoundErr');
+  const names = [d.a1, d.a2, d.b1, d.b2];
+  if(names.some(n => !n)){ err.textContent = 'Scegli tutti e quattro i giocatori.'; return; }
+  if(new Set(names).size !== 4){ err.textContent = 'Ogni giocatore può comparire una sola volta.'; return; }
+  const s1 = Number(d.s1), s2 = Number(d.s2);
+  const isInt = Number.isInteger(s1) && Number.isInteger(s2) && s1>=0 && s2>=0;
+  if(d.s1==='' || d.s2==='' || !isInt || s1+s2===0){
+    err.textContent = 'Inserisci un punteggio con numeri interi (va bene anche una partita interrotta).'; return;
+  }
+  if(!scoreIsPlausible(s1, s2)){
+    err.textContent = 'Sopra il 6 lo scarto può essere al massimo di 2 game: la partita sarebbe già finita.'; return;
+  }
+  let tb;
+  if(isTiedSix(s1, s2)){
+    const tb1 = Number(d.tb1), tb2 = Number(d.tb2);
+    if(d.tb1==='' || d.tb2==='' || !tiebreakIsPlausible(tb1, tb2)){
+      err.textContent = 'Sul 6-6 inserisci il punteggio del tie-break (chi arriva a 7 con almeno 2 di scarto).'; return;
+    }
+    tb = [tb1, tb2];
+  }
+  const pa = [d.a1, d.a2].map(resolveId), pb = [d.b1, d.b2].map(resolveId);
+  a.roundsPlayed = (a.roundsPlayed||0) + 1;
+  if(!a.history) a.history = [];
+  a.history.push({ round: a.roundsPlayed, resting: [], matches: [{ pa, pb, a: d.a1+' & '+d.a2, b: d.b1+' & '+d.b2, s1, s2, tb, court: 0 }] });
+  archiveRoundDraft = null;
+  recomputeRatings();
+  ratingSummary = null;
+  saveArchive(); saveRoster();
+  render();
+}
+
+// Elimina una partita da un turno ufficiale già archiviato (e il turno stesso se resta vuoto).
+function removeArchiveRoundMatch(i, hi, mi){
+  const a = archive[i];
+  const h = a.history[hi];
+  if(!h) return;
+  h.matches.splice(mi, 1);
+  if(h.matches.length === 0) a.history.splice(hi, 1);
+  a.roundsPlayed = a.history.length;
+  if(!a.mode || a.mode === 'fixed'){ recomputeTeamAggregates(a); }
+  recomputeRatings();
+  ratingSummary = null;
+  saveArchive(); saveRoster();
+  render();
+}
+function askRemoveArchiveRoundMatch(i, hi, mi){
+  const a = archive[i];
+  const m = a.history[hi] && a.history[hi].matches[mi];
+  if(!m) return;
+  archiveRemoveConfirm = { type:'round', i, hi, mi, desc: m.a+' vs '+m.b+' ('+m.s1+'-'+m.s2+')' };
+  render();
+}
+// Sposta una partita da un turno ufficiale già archiviato alle partite extra (non conta più per la classifica del torneo, ma resta nel rating con peso pieno).
+function moveArchiveMatchToExtra(i, hi, mi){
+  const a = archive[i];
+  const h = a.history[hi];
+  if(!h) return;
+  const m = h.matches[mi];
+  const nm = archiveIdNames(a);
+  const nameOf = id => nm[id] || (roster[id] && roster[id].name) || id;
+  const teamA = (m.pa||[]).map(nameOf), teamB = (m.pb||[]).map(nameOf);
+  if(!a.extras) a.extras = [];
+  a.extras.push({ id: Date.now(), teamA, teamB, s1:m.s1, s2:m.s2, tb:m.tb, rating:'full', weight:1, idsA:m.pa||[], idsB:m.pb||[] });
+  h.matches.splice(mi, 1);
+  if(h.matches.length === 0) a.history.splice(hi, 1);
+  a.roundsPlayed = a.history.length;
+  if(!a.mode || a.mode === 'fixed'){ recomputeTeamAggregates(a); }
+  recomputeRatings();
+  ratingSummary = null;
+  saveArchive(); saveRoster();
+  render();
+}
+
+// Corpo comune a ogni scheda dell'archivio (turni, extra, correzione/eliminazione, variazioni di rating):
+// uguale per tornei a squadre fisse e per Americano/Messicano, perché entrambi salvano m.a/m.b/s1/s2 come stringhe.
+function archiveDetailBody(a, i){
+  let html = '';
+  html += '<label style="display:flex;align-items:center;gap:8px;margin:4px 0 10px;font-size:13.5px;"><input type="checkbox" '+(a.excluded?'checked':'')+' onchange="toggleArchiveExclude('+i+')" style="width:18px;height:18px;accent-color:var(--ball);flex-shrink:0;" /> Escludi questo torneo da Elo, Glicko-2 e classifica squadre</label>';
+  html += '<button class="secondary" style="margin:0 0 12px;" onclick="shareArchiveResults('+i+')">Condividi risultati di questo torneo</button>';
+  if(archiveRemoveConfirm && archiveRemoveConfirm.i === i){
+    html += '<div class="banner warn" style="margin:4px 0 10px;"><p style="margin:0 0 10px;">Eliminare '+esc(archiveRemoveConfirm.desc)+'?</p><div style="display:flex;gap:8px;"><button class="primary" style="background:var(--danger);color:#fff;" onclick="confirmArchiveRemove()">Sì, elimina</button><button class="ghost" style="margin-top:0;" onclick="cancelArchiveRemoveConfirm()">Annulla</button></div></div>';
+  }
+  const editing = (editingArchiveIdx === i);
+  const scoreInputs = (idA, idB, v1, v2, tbIdA, tbIdB, tbRowId, tb) => {
+    let out = '<div class="edit-match-score"><input id="'+idA+'" type="number" min="0" inputmode="numeric" value="'+v1+'" oninput="toggleTbRow(\''+idA+'\',\''+idB+'\',\''+tbRowId+'\')" /><span class="dash">&ndash;</span><input id="'+idB+'" type="number" min="0" inputmode="numeric" value="'+v2+'" oninput="toggleTbRow(\''+idA+'\',\''+idB+'\',\''+tbRowId+'\')" /></div>';
+    out += '<div class="tb-row" id="'+tbRowId+'" style="'+(isTiedSix(v1,v2)?'':'display:none;')+'"><span class="tb-label">Tie-break</span><input class="score-input tb-input" id="'+tbIdA+'" type="number" min="0" inputmode="numeric" value="'+(tb?tb[0]:'')+'" /><span class="dash">&ndash;</span><input class="score-input tb-input" id="'+tbIdB+'" type="number" min="0" inputmode="numeric" value="'+(tb?tb[1]:'')+'" /></div>';
+    return out;
+  };
+  (a.history||[]).forEach((h,hi) => {
+    html += '<p class="section-label" style="margin-top:10px;">Turno '+h.round+'</p>';
+    h.matches.forEach((m,mi) => {
+      if(editing){
+        html += '<div class="edit-match"><p class="edit-match-name">'+esc(m.a)+' <span style="opacity:.7;">vs</span> '+esc(m.b)+'</p>'+scoreInputs('ea_'+hi+'_'+mi+'_1','ea_'+hi+'_'+mi+'_2',m.s1,m.s2,'ea_'+hi+'_'+mi+'_tb1','ea_'+hi+'_'+mi+'_tb2','ea_'+hi+'_'+mi+'_tbrow',m.tb)+'</div>';
+      } else {
+        html += '<div class="history-match"><span>'+m.a+' vs '+m.b+pairStrengthShort(m.a.split(' & '),m.b.split(' & '))+'</span><span class="extra-side">'+m.s1+' &ndash; '+m.s2+(m.tb?' <span class="tb-inline">(tb '+m.tb[0]+'-'+m.tb[1]+')</span>':'')+' <button class="small" title="Sposta tra le partite extra" onclick="moveArchiveMatchToExtra('+i+','+hi+','+mi+')">→ extra</button><button class="small danger" onclick="askRemoveArchiveRoundMatch('+i+','+hi+','+mi+')">✕</button></span></div>';
+      }
+    });
+  });
+  const rotatingArchive = !!(a.mode && a.mode !== 'fixed');
+  if(rotatingArchive && !editing){
+    if(archiveRoundDraft && archiveRoundDraft.idx === i){
+      const d = archiveRoundDraft, players = archiveExtraPlayers(a);
+      html += '<div class="team-card" style="margin-top:10px;"><p class="section-label">Nuovo turno (conta per la classifica del torneo)</p>';
+      html += '<label class="field">Coppia A</label><div class="team-players">'+archiveRoundSelect('a1',players)+archiveRoundSelect('a2',players)+'</div>';
+      html += '<label class="field" style="margin-top:12px;">Coppia B</label><div class="team-players">'+archiveRoundSelect('b1',players)+archiveRoundSelect('b2',players)+'</div>';
+      html += pairStrengthHtml(d.a1,d.a2,d.b1,d.b2);
+      html += '<div class="row2" style="margin-top:12px;">';
+      html += '<div><label class="field">Game coppia A</label><input id="around_s1" type="number" min="0" inputmode="numeric" value="'+esc(d.s1)+'" oninput="archiveRoundDraft.s1=this.value; toggleTbRow(\'around_s1\',\'around_s2\',\'aroundTbRow\')" /></div>';
+      html += '<div><label class="field">Game coppia B</label><input id="around_s2" type="number" min="0" inputmode="numeric" value="'+esc(d.s2)+'" oninput="archiveRoundDraft.s2=this.value; toggleTbRow(\'around_s1\',\'around_s2\',\'aroundTbRow\')" /></div>';
+      html += '</div>';
+      html += '<div class="tb-row" id="aroundTbRow" style="'+(d.s1==='6'&&d.s2==='6'?'':'display:none;')+'"><span class="tb-label">Tie-break</span><input class="score-input tb-input" type="number" min="0" inputmode="numeric" value="'+esc(d.tb1)+'" oninput="archiveRoundDraft.tb1=this.value" /><span class="dash">&ndash;</span><input class="score-input tb-input" type="number" min="0" inputmode="numeric" value="'+esc(d.tb2)+'" oninput="archiveRoundDraft.tb2=this.value" /></div>';
+      html += '<p class="err" id="archiveRoundErr"></p>';
+      html += '<div class="btn-pair" style="margin-top:12px;"><button class="ghost" onclick="closeArchiveRoundForm()">Annulla</button><button class="primary" onclick="saveArchiveRound()">Salva turno</button></div>';
+      html += '</div>';
+    } else {
+      html += '<button class="ghost" onclick="openArchiveRoundForm('+i+')">Aggiungi turno</button>';
+    }
+  }
+  if((a.extras && a.extras.length) || !editing){
+    html += '<p class="section-label" style="margin-top:10px;">Partite extra</p>';
+    (a.extras||[]).forEach((x,xi) => {
+      if(editing){
+        const r = x.rating || (x.weight===0 ? 'none' : (x.weight===1 ? 'full' : 'reduced'));
+        html += '<div class="edit-match"><p class="edit-match-name">'+esc(x.teamA.join(' & '))+' <span style="opacity:.7;">vs</span> '+esc(x.teamB.join(' & '))+'</p><div class="edit-match-tag"><select id="ex_'+xi+'_r"><option value="reduced"'+(r==='reduced'?' selected':'')+'>Peso ridotto</option><option value="full"'+(r==='full'?' selected':'')+'>Peso pieno</option><option value="none"'+(r==='none'?' selected':'')+'>Non conta</option></select></div>'+scoreInputs('ex_'+xi+'_1','ex_'+xi+'_2',x.s1,x.s2,'ex_'+xi+'_tb1','ex_'+xi+'_tb2','ex_'+xi+'_tbrow',x.tb)+'</div>';
+      } else {
+        html += '<div class="history-match extra-row"><span>'+esc(x.teamA.join(' & '))+' vs '+esc(x.teamB.join(' & '))+'<span class="extra-tag">'+extraTag(x)+'</span>'+pairStrengthShort(x.teamA,x.teamB)+'</span><span class="extra-side">'+x.s1+' &ndash; '+x.s2+(x.tb?' <span class="tb-inline">(tb '+x.tb[0]+'-'+x.tb[1]+')</span>':'')+(rotatingArchive?' <button class="small" title="Sposta tra i turni ufficiali" onclick="moveArchiveExtraToRound('+i+','+x.id+')">→ turno</button>':'')+'<button class="small danger" onclick="askRemoveArchiveExtra('+i+','+x.id+')">✕</button></span></div>';
+      }
+    });
+    if(!editing){
+      if(archiveExtraDraft && archiveExtraDraft.idx === i){
+        const d = archiveExtraDraft, players = archiveExtraPlayers(a);
+        html += '<div class="team-card" style="margin-top:10px;">';
+        html += '<label class="field">Coppia A</label><div class="team-players">'+archiveExtraSelect('a1',players)+archiveExtraSelect('a2',players)+'</div>';
+        html += '<label class="field" style="margin-top:12px;">Coppia B</label><div class="team-players">'+archiveExtraSelect('b1',players)+archiveExtraSelect('b2',players)+'</div>';
+        html += pairStrengthHtml(d.a1,d.a2,d.b1,d.b2);
+        html += '<div class="row2" style="margin-top:12px;">';
+        html += '<div><label class="field">Game coppia A</label><input id="aextra_s1" type="number" min="0" inputmode="numeric" value="'+esc(d.s1)+'" oninput="archiveExtraDraft.s1=this.value; toggleTbRow(\'aextra_s1\',\'aextra_s2\',\'aextraTbRow\')" /></div>';
+        html += '<div><label class="field">Game coppia B</label><input id="aextra_s2" type="number" min="0" inputmode="numeric" value="'+esc(d.s2)+'" oninput="archiveExtraDraft.s2=this.value; toggleTbRow(\'aextra_s1\',\'aextra_s2\',\'aextraTbRow\')" /></div>';
+        html += '</div>';
+        html += '<div class="tb-row" id="aextraTbRow" style="'+(d.s1==='6'&&d.s2==='6'?'':'display:none;')+'"><span class="tb-label">Tie-break</span><input class="score-input tb-input" type="number" min="0" inputmode="numeric" value="'+esc(d.tb1)+'" oninput="archiveExtraDraft.tb1=this.value" /><span class="dash">&ndash;</span><input class="score-input tb-input" type="number" min="0" inputmode="numeric" value="'+esc(d.tb2)+'" oninput="archiveExtraDraft.tb2=this.value" /></div>';
+        html += '<label class="field" style="margin-top:12px;">Peso sul rating</label><select onchange="setArchiveExtraField(\'rating\',this.value)">';
+        [['reduced','Ridotto (×'+String(EXTRA_K_FACTOR).replace('.',',')+')'],['full','Pieno'],['none','Non conta']].forEach(([v,label]) => {
+          html += '<option value="'+v+'"'+(d.rating===v?' selected':'')+'>'+label+'</option>';
+        });
+        html += '</select>';
+        html += '<p class="err" id="archiveExtraErr"></p>';
+        html += '<div class="btn-pair" style="margin-top:12px;"><button class="ghost" onclick="closeArchiveExtraForm()">Annulla</button><button class="primary" onclick="saveArchiveExtra()">Salva partita</button></div>';
+        html += '</div>';
+      } else {
+        html += '<button class="ghost" onclick="openArchiveExtraForm('+i+')">Aggiungi partita extra</button>';
+      }
+    }
+  }
+  if(editing){
+    html += '<p class="err" id="archErr"></p>';
+    html += '<div class="btn-pair" style="margin-top:10px;"><button class="ghost" onclick="cancelArchiveEdit()">Annulla</button><button class="primary" onclick="saveArchiveEdit('+i+')">Salva correzioni</button></div>';
+    html += '<p class="hint" style="margin-top:8px;">Si correggono i punteggi; i rating di tutti i tornei successivi si ricalcolano da soli.</p>';
+  } else if(deleteArchiveArmed === i){
+    html += '<div class="banner warn" style="margin-top:12px;"><p style="margin:0 0 10px;">Eliminare questo torneo? I rating si ricalcolano senza di lui.</p><div style="display:flex;gap:8px;"><button class="primary" style="background:var(--danger);color:#fff;" onclick="confirmDeleteArchive('+i+')">Sì, elimina</button><button class="ghost" style="margin-top:0;" onclick="cancelDeleteArchive()">Annulla</button></div></div>';
+  } else {
+    html += '<div class="btn-pair" style="margin-top:12px;"><button class="ghost" onclick="startArchiveEdit('+i+')">Correggi risultati</button><button class="ghost" onclick="askDeleteArchive('+i+')">Elimina torneo</button></div>';
+  }
+  if(a.ratingChanges && a.ratingChanges.length){
+    html += '<p class="section-label" style="margin-top:10px;">Variazioni di rating</p>';
+    a.ratingChanges.forEach(r => {
+      const d = Math.round((r.after - r.before)*10)/10;
+      html += '<div class="history-match"><span>'+esc(r.name)+'</span><span>'+Math.round(r.before)+' &rarr; '+Math.round(r.after)+' ('+(d>0?'+':'')+d.toFixed(1)+')</span></div>';
+    });
+  }
+  return html;
+}
+
+function archiveFixedCard(a, i){
+  const dateStr = new Date(a.date).toLocaleDateString('it-IT', {day:'2-digit', month:'2-digit', year:'numeric'});
+  function archBuchholz(teamIdx){
+    let sum = 0;
+    (a.history||[]).forEach(h => h.matches.forEach(m => {
+      if(m.aId===teamIdx){ const opp=a.teams[m.bId]; if(opp) sum += opp.wins; }
+      else if(m.bId===teamIdx){ const opp=a.teams[m.aId]; if(opp) sum += opp.wins; }
+    }));
+    return sum;
+  }
+  const sorted = a.teams.map((tm,idx)=>({...tm, _idx:idx})).sort((x,y)=> y.wins-x.wins || (y.setsWon-y.setsLost)-(x.setsWon-x.setsLost) || archBuchholz(y._idx)-archBuchholz(x._idx));
+  const ranks = computeRanks(sorted, tm => tm.wins+'-'+(tm.setsWon-tm.setsLost));
+  let html = '<div class="team-card"><div class="team-card-head">';
+  html += '<p class="section-label">'+dateStr+' · '+a.teams.length+' squadre · '+a.roundsPlayed+' turni'+(a.excluded?' · escluso':'')+'</p>';
+  html += '<button class="small" onclick="toggleArchiveExpand('+i+')">'+(expandedArchiveIdx===i ? 'Chiudi' : 'Dettagli')+'</button>';
+  html += '</div>';
+  sorted.forEach((tm,pos) => {
+    const r = ranks[pos];
+    html += '<div class="history-match"><span><b>'+rankLabel(r)+'. '+tm.name+'</b></span><span>'+tm.wins+' V · '+tm.setsWon+'-'+tm.setsLost+'</span></div>';
+  });
+  if(expandedArchiveIdx === i){ html += archiveDetailBody(a, i); }
+  html += '</div>';
+  return html;
+}
+
+function archiveRotatingCard(a, i){
+  const dateStr = new Date(a.date).toLocaleDateString('it-IT', {day:'2-digit', month:'2-digit', year:'numeric'});
+  const label = a.mode === 'messicano' ? 'Messicano' : 'Americano';
+  const standings = archivePlayerStandings(a);
+  const ranks = computeRanks(standings, r => r.wins+'-'+(r.gW-r.gL));
+  let html = '<div class="team-card"><div class="team-card-head">';
+  html += '<p class="section-label">'+dateStr+' · '+(a.players ? a.players.length : standings.length)+' giocatori · '+a.roundsPlayed+' turni · '+label+(a.excluded?' · escluso':'')+'</p>';
+  html += '<button class="small" onclick="toggleArchiveExpand('+i+')">'+(expandedArchiveIdx===i ? 'Chiudi' : 'Dettagli')+'</button>';
+  html += '</div>';
+  standings.forEach((r,pos) => {
+    const rk = ranks[pos];
+    html += '<div class="history-match"><span><b>'+rankLabel(rk)+'. '+esc(r.name)+'</b></span><span>'+r.wins+' V · '+r.gW+'-'+r.gL+'</span></div>';
+  });
+  if(expandedArchiveIdx === i){ html += archiveDetailBody(a, i); }
+  html += '</div>';
+  return html;
+}
+
+function archiveView(){
+  let html = '<section><p class="section-label">Tornei passati</p>';
+  if(archive.length === 0){
+    html += '<p class="roster-empty">Nessun torneo ancora completato.</p>';
+    html += '</section>';
+    return html;
+  }
+  const MONTHS = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+  const entries = archive.map((a,i) => ({ a, i, d: new Date(a.date) }));
+  const years = Array.from(new Set(entries.map(e => e.d.getFullYear()))).sort((a,b)=> b-a);
+  const playerNames = Array.from(new Set(entries.flatMap(e => archiveParticipantNames(e.a)))).sort((x,y)=>x.localeCompare(y));
+
+  html += '<div class="team-players">';
+  html += '<select onchange="setArchiveFilterYear(this.value)"><option value="">Tutti gli anni</option>'+years.map(y => '<option value="'+y+'"'+(String(archiveFilterYear)===String(y)?' selected':'')+'>'+y+'</option>').join('')+'</select>';
+  html += '<select onchange="setArchiveFilterMonth(this.value)"><option value="">Tutti i mesi</option>'+MONTHS.map((m,idx) => '<option value="'+idx+'"'+(String(archiveFilterMonth)===String(idx)?' selected':'')+'>'+m+'</option>').join('')+'</select>';
+  html += '</div>';
+  html += '<div class="team-players" style="margin-top:8px;">';
+  html += '<select onchange="setArchiveFilterMode(this.value)"><option value="">Tutte le modalità</option><option value="fixed"'+(archiveFilterMode==='fixed'?' selected':'')+'>Squadre fisse</option><option value="americano"'+(archiveFilterMode==='americano'?' selected':'')+'>Americano</option><option value="messicano"'+(archiveFilterMode==='messicano'?' selected':'')+'>Messicano</option></select>';
+  html += '<select onchange="setArchiveFilterPlayer(this.value)"><option value="">Tutti i giocatori</option>'+playerNames.map(n => '<option value="'+esc(n)+'"'+(archiveFilterPlayer===n?' selected':'')+'>'+esc(n)+'</option>').join('')+'</select>';
+  html += '</div>';
+  html += '<input type="text" placeholder="Cerca per nome partecipante…" value="'+esc(archiveSearchText)+'" oninput="setArchiveSearchText(this.value)" style="margin-top:8px;width:100%;" />';
+  if(archiveFilterYear || archiveFilterMonth!=='' || archiveFilterMode || archiveFilterPlayer || archiveSearchText){
+    html += '<button class="ghost" style="margin-top:8px;" onclick="clearArchiveFilters()">Azzera filtri</button>';
+  }
+
+  const q = archiveSearchText.trim().toLowerCase();
+  const filtered = entries.filter(e => {
+    if(archiveFilterYear && String(e.d.getFullYear()) !== String(archiveFilterYear)) return false;
+    if(archiveFilterMonth !== '' && String(e.d.getMonth()) !== String(archiveFilterMonth)) return false;
+    const modeKey = e.a.mode || 'fixed';
+    if(archiveFilterMode && modeKey !== archiveFilterMode) return false;
+    const names = archiveParticipantNames(e.a);
+    if(archiveFilterPlayer && !names.includes(archiveFilterPlayer)) return false;
+    if(q && !names.some(n => n.toLowerCase().includes(q))) return false;
+    return true;
+  }).sort((x,y)=> y.d - x.d);
+
+  if(filtered.length === 0){
+    html += '<p class="roster-empty" style="margin-top:10px;">Nessun torneo corrisponde ai filtri.</p>';
+    html += '</section>';
+    return html;
+  }
+
+  const visible = filtered.slice(0, archivePageSize);
+  const groups = [];
+  visible.forEach(e => {
+    const key = e.d.getFullYear()+'-'+String(e.d.getMonth()).padStart(2,'0');
+    let g = groups.find(g => g.key === key);
+    if(!g){ g = { key, label: MONTHS[e.d.getMonth()]+' '+e.d.getFullYear(), items: [] }; groups.push(g); }
+    g.items.push(e);
+  });
+  if(!archiveOpenMonths){ archiveOpenMonths = new Set(groups.length ? [groups[0].key] : []); }
+  groups.forEach(g => {
+    const open = archiveOpenMonths.has(g.key);
+    html += '<button class="ghost" style="display:flex;justify-content:space-between;align-items:center;width:100%;margin-top:10px;" onclick="toggleArchiveMonth(\''+g.key+'\')"><b>'+g.label+' ('+g.items.length+')</b><span>'+(open?'▾':'▸')+'</span></button>';
+    if(open){
+      g.items.forEach(({a,i}) => {
+        html += (a.mode && a.mode !== 'fixed') ? archiveRotatingCard(a, i) : archiveFixedCard(a, i);
+      });
+    }
+  });
+  if(filtered.length > visible.length){
+    html += '<button class="ghost" style="margin-top:10px;" onclick="showMoreArchive()">Mostra altri 20 ('+(filtered.length-visible.length)+' rimasti)</button>';
+  }
+  html += '</section>';
+  return html;
+}
+
+// ---------- partite extra ----------
+
+// ---------- Americano / Messicano: compagni variabili, punteggio individuale ----------
+// I turni non sono persistiti come "squadre": ogni partita salva direttamente le coppie di id
+// (m.pa/m.pb), quindi non serve nessuna struttura extra per annullare, correggere o chiudere il torneo.
+
+function pk2(a, b){ return [a,b].sort().join('|'); }
+
+// Statistiche individuali di QUESTO torneo, ricavate dai turni già giocati (mai salvate a parte).
+function liveIndividualStats(){
+  const st = {};
+  (t.players || []).forEach(id => { st[id] = { matches:0, wins:0, gW:0, gL:0 }; });
+  (t.history || []).forEach(h => h.matches.forEach(m => {
+    const win = matchWinner(m.s1, m.s2, m.tb);
+    (m.pa || []).forEach(id => { if(st[id]){ st[id].matches++; st[id].gW += m.s1; st[id].gL += m.s2; if(win===1) st[id].wins++; } });
+    (m.pb || []).forEach(id => { if(st[id]){ st[id].matches++; st[id].gW += m.s2; st[id].gL += m.s1; if(win===0) st[id].wins++; } });
+  }));
+  return st;
+}
+
+// Chi ha già giocato con/contro chi in questo torneo, per evitare ripetizioni nei turni successivi.
+function rotatingHistoryKeys(){
+  const partners = new Set(), opponents = new Set();
+  (t.history || []).forEach(h => h.matches.forEach(m => {
+    partners.add(pk2(m.pa[0], m.pa[1]));
+    partners.add(pk2(m.pb[0], m.pb[1]));
+    m.pa.forEach(x => m.pb.forEach(y => opponents.add(pk2(x,y))));
+  }));
+  return { partners, opponents };
+}
+
+// Forza di riferimento per il primo turno (prima che ci siano risultati): Elo o Glicko-2, come per i suggerimenti.
+function rotatingStrengthFn(){
+  const gm = strengthMap();
+  const byId = roster;  // la chiave della rubrica È l'id
+  return id => gm ? (gm[id] !== undefined ? gm[id] : START_ELO) : (byId[id] ? byId[id].elo : START_ELO);
+}
+
+// Messicano: si riordina a ogni turno in base alla classifica di questa serata (a parità, alla forza di partenza),
+// si raggruppa a blocchi di 4 nell'ordine, e in ogni blocco si abbina 1°+4° contro 2°+3°, evitando una coppia già giocata insieme.
+function messicanoGroups(playing, matchesCount){
+  const st = liveIndividualStats(), strOf = rotatingStrengthFn();
+  const { partners } = rotatingHistoryKeys();
+  const sorted = [...playing].sort((a,b) => {
+    const sa = st[a], sb = st[b];
+    return (sb.wins - sa.wins) || ((sb.gW-sb.gL) - (sa.gW-sa.gL)) || (sb.gW - sa.gW) || (strOf(b) - strOf(a));
+  });
+  const groups = [];
+  for(let i = 0; i < matchesCount; i++){
+    const g = sorted.slice(i*4, i*4+4);
+    const options = [[[0,3],[1,2]], [[0,2],[1,3]], [[0,1],[2,3]]];
+    let chosen = null;
+    for(const [ia, ib] of options){
+      const pa = [g[ia[0]], g[ia[1]]], pb = [g[ib[0]], g[ib[1]]];
+      if(!partners.has(pk2(pa[0],pa[1])) && !partners.has(pk2(pb[0],pb[1]))){ chosen = [pa,pb]; break; }
+    }
+    if(!chosen){ chosen = [[g[0],g[3]],[g[1],g[2]]]; }
+    groups.push(chosen);
+  }
+  return groups;
+}
+
+// Americano: si mescola tutto il gruppo e si formano squadre di 2 cercando di non ripetere compagni o avversari
+// e di tenere le due coppie di un campo equilibrate per forza. Si provano più mescolate a caso e si tiene la migliore.
+function americanoGroups(playing, matchesCount){
+  const strOf = rotatingStrengthFn();
+  const { partners, opponents } = rotatingHistoryKeys();
+  const pairingsOf4 = [[[0,1],[2,3]], [[0,2],[1,3]], [[0,3],[1,2]]];
+  let best = null, bestCost = Infinity;
+  for(let attempt = 0; attempt < 300; attempt++){
+    const pool = shuffle(playing);
+    const groups = [];
+    let cost = 0;
+    for(let i = 0; i < matchesCount; i++){
+      const g = pool.slice(i*4, i*4+4);
+      let gBest = null, gCost = Infinity;
+      pairingsOf4.forEach(([ia, ib]) => {
+        const pa = [g[ia[0]], g[ia[1]]], pb = [g[ib[0]], g[ib[1]]];
+        let c = 0;
+        if(partners.has(pk2(pa[0],pa[1]))) c += 1000;
+        if(partners.has(pk2(pb[0],pb[1]))) c += 1000;
+        pa.forEach(x => pb.forEach(y => { if(opponents.has(pk2(x,y))) c += 10; }));
+        c += Math.abs((strOf(pa[0])+strOf(pa[1])) - (strOf(pb[0])+strOf(pb[1]))) / 50;
+        if(c < gCost){ gCost = c; gBest = [pa,pb]; }
+      });
+      groups.push(gBest);
+      cost += gCost;
+    }
+    if(cost < bestCost){ bestCost = cost; best = groups; }
+  }
+  return best;
+}
+
+function generateRotatingRound(){
+  t.round++;
+  const pool = t.players.slice();
+  const matchesCount = Math.min(t.courts, Math.floor(pool.length/4));
+  const restingCount = pool.length - matchesCount*4;
+  let restIds = [];
+  if(restingCount > 0){
+    const byRest = shuffle(pool).sort((a,b) => (t.restCounts[a]||0) - (t.restCounts[b]||0));
+    restIds = byRest.slice(0, restingCount);
+    restIds.forEach(id => { t.restCounts[id] = (t.restCounts[id]||0) + 1; });
+  }
+  const playing = pool.filter(id => !restIds.includes(id));
+  const groups = (t.mode === 'messicano') ? messicanoGroups(playing, matchesCount) : americanoGroups(playing, matchesCount);
+  t.currentMatches = groups.map(([pa,pb], court) => ({ pa, pb, aName: pa.map(playerName).join(' & '), bName: pb.map(playerName).join(' & '), court }));
+  t.restingThisRound = restIds;
+  roundDraft = {};
+  pairEdit = null;
+  saveTournament();
+  render();
+}
+
+function submitRotatingResults(){
+  let valid = true;
+  t.currentMatches.forEach((m,idx) => {
+    const s1raw = document.getElementById('s1_'+idx).value, s2raw = document.getElementById('s2_'+idx).value;
+    if(s1raw==='' || s2raw===''){ valid = false; return; }
+    const s1 = Number(s1raw), s2 = Number(s2raw);
+    if(!scoreIsPlausible(s1, s2)){ valid = false; return; }
+    if(isTiedSix(s1, s2)){
+      const tb1raw = document.getElementById('tb1_'+idx).value, tb2raw = document.getElementById('tb2_'+idx).value;
+      if(tb1raw===''||tb2raw===''||!tiebreakIsPlausible(Number(tb1raw), Number(tb2raw))){ valid = false; }
+    }
+  });
+  if(!valid){ document.getElementById('err').textContent = 'Controlla i punteggi: sopra il 6 lo scarto può essere al massimo di 2 game; sul 6-6 inserisci anche il tie-break (chi arriva a 7 con almeno 2 di scarto).'; return; }
+  const roundResults = t.currentMatches.map((m,idx) => {
+    const s1 = parseInt(document.getElementById('s1_'+idx).value), s2 = parseInt(document.getElementById('s2_'+idx).value);
+    const tb = isTiedSix(s1, s2) ? [parseInt(document.getElementById('tb1_'+idx).value), parseInt(document.getElementById('tb2_'+idx).value)] : undefined;
+    return { pa:m.pa, pb:m.pb, a: m.aName, b: m.bName, s1, s2, tb, court: idx };
+  });
+  t.history.push({ round:t.round, resting:(t.restingThisRound||[]), matches:roundResults });
+  t.currentMatches = [];
+  roundDraft = {};
+  pairEdit = null;
+  saveTournament();
+  render();
+}
+
+function undoRotatingRound(){
+  if(t.history.length === 0) return;
+  const last = t.history.pop();
+  t.currentMatches = last.matches.map(m => ({ pa:m.pa, pb:m.pb, aName:m.a, bName:m.b, court:m.court }));
+  (last.resting || []).forEach(id => { if(t.restCounts[id] > 0) t.restCounts[id]--; });
+  t.restingThisRound = last.resting || [];
+  roundDraft = {};
+  pairEdit = null;
+  saveTournament();
+  render();
+}
+
+function startRotatingTournament(){
+  const players = Array.from(selected).filter(k => roster[k]);
+  if(!t.courts || t.courts < 1){ document.getElementById('setupErr').textContent = 'Indica quanti campi avete.'; return; }
+  if(!t.maxRounds || t.maxRounds < 1){ document.getElementById('setupErr').textContent = 'Indica quanti turni volete giocare.'; return; }
+  if(players.length < 4){ document.getElementById('setupErr').textContent = 'Servono almeno 4 giocatori.'; return; }
+  document.getElementById('setupErr').textContent = '';
+
+  const mode = pendingMode, courts = t.courts, maxRounds = t.maxRounds, unofficial = !!t.unofficial;
+  t = { phase:'playing', mode, courts, maxRounds, unofficial, players, round:0, currentMatches:[], history:[], restCounts:{}, extras:[] };
+  players.forEach(id => { t.restCounts[id] = 0; });
+  roundDraft = {};
+  pairEdit = null;
+  saveTournament();
+  pendingMode = 'fixed';
+  render();
+}
+
+function extraPlayers(){
+  const names = [];
+  if(t.mode && t.mode !== 'fixed'){
+    t.players.forEach(id => { const nm = playerName(id); if(!names.includes(nm)) names.push(nm); });
+  } else {
+    t.teams.forEach(tm => tm.players.forEach(p => { if(!names.includes(p)) names.push(p); }));
+  }
+  return names.sort((a,b)=> a.localeCompare(b));
+}
+function openExtraForm(){ extraDraft = { a1:'', a2:'', b1:'', b2:'', s1:'', s2:'', tb1:'', tb2:'', rating:'reduced' }; render(); }
+function closeExtraForm(){ extraDraft = null; render(); }
+function setExtraField(field, val){
+  const d = extraDraft, oldVal = d[field];
+  if(val !== ''){
+    ['a1','a2','b1','b2'].forEach(f => { if(f !== field && d[f] === val){ d[f] = oldVal; } });
+  }
+  d[field] = val;
+  render();
+}
+
+function saveExtra(){
+  const d = extraDraft;
+  const err = document.getElementById('extraErr');
+  const names = [d.a1, d.a2, d.b1, d.b2];
+  if(names.some(n => !n)){ err.textContent = 'Scegli tutti e quattro i giocatori.'; return; }
+  if(new Set(names).size !== 4){ err.textContent = 'Ogni giocatore può comparire una sola volta.'; return; }
+  const s1 = Number(d.s1), s2 = Number(d.s2);
+  const isInt = Number.isInteger(s1) && Number.isInteger(s2) && s1>=0 && s2>=0;
+  if(d.s1==='' || d.s2==='' || !isInt || s1+s2===0){
+    err.textContent = 'Inserisci un punteggio con numeri interi (va bene anche una partita interrotta).'; return;
+  }
+  if(!scoreIsPlausible(s1, s2)){
+    err.textContent = 'Sopra il 6 lo scarto può essere al massimo di 2 game: la partita sarebbe già finita.'; return;
+  }
+  let tb;
+  if(isTiedSix(s1, s2)){
+    const tb1 = Number(d.tb1), tb2 = Number(d.tb2);
+    if(d.tb1==='' || d.tb2==='' || !tiebreakIsPlausible(tb1, tb2)){
+      err.textContent = 'Sul 6-6 inserisci il punteggio del tie-break (chi arriva a 7 con almeno 2 di scarto).'; return;
+    }
+    tb = [tb1, tb2];
+  }
+  const rating = t.unofficial ? 'none' : d.rating;
+  // Il peso viene salvato come numero: l'archivio resta ricalcolabile anche se in futuro cambiano le costanti.
+  const weight = rating==='full' ? 1 : (rating==='reduced' ? EXTRA_K_FACTOR : 0);
+  t.extras.push({ id: Date.now(), teamA:[d.a1,d.a2], teamB:[d.b1,d.b2], s1, s2, tb, rating, weight });
+  extraDraft = null;
+  saveTournament();
+  render();
+}
+function removeExtra(id){
+  t.extras = (t.extras||[]).filter(x => x.id !== id);
+  saveTournament();
+  render();
+}
+
+function extraTag(x){
+  const w = x.weight !== undefined ? x.weight : (x.rating==='full' ? 1 : (x.rating==='reduced' ? EXTRA_K_FACTOR : 0));
+  if(w === 0) return 'non conta per il rating';
+  if(w === 1) return 'peso pieno sul rating';
+  return 'peso ×'+String(w).replace('.',',')+' sul rating';
+}
+
+function extraSelect(field, players){
+  const d = extraDraft;
+  const taken = ['a1','a2','b1','b2'].filter(f => f!==field).map(f => d[f]).filter(Boolean);
+  let html = '<select onchange="setExtraField(\''+field+'\',this.value)"><option value="">—</option>';
+  players.forEach(n => {
+    html += '<option value="'+esc(n)+'"'+(d[field]===n?' selected':'')+'>'+esc(n)+(taken.includes(n)?' (occupato)':'')+'</option>';
+  });
+  return html + '</select>';
+}
+
+function extrasSection(){
+  const extras = t.extras || [];
+  let html = '<section><p class="section-label">Partite extra</p>';
+  html += '<p class="hint">Non entrano nella classifica del torneo. Il rating si aggiorna a fine torneo.</p>';
+  extras.forEach(x => {
+    html += '<div class="history-match extra-row"><span><b>'+esc(x.teamA.join(' & '))+'</b> vs <b>'+esc(x.teamB.join(' & '))+'</b><span class="extra-tag">'+extraTag(x)+'</span>'+pairStrengthShort(x.teamA,x.teamB)+'</span>';
+    html += '<span class="extra-side">'+x.s1+' &ndash; '+x.s2+(x.tb?' <span class="tb-inline">(tb '+x.tb[0]+'-'+x.tb[1]+')</span>':'')+'<button class="small danger" onclick="removeExtra('+x.id+')">✕</button></span></div>';
+  });
+  if(!extraDraft){
+    html += '<button class="ghost" onclick="openExtraForm()">Aggiungi partita extra</button>';
+  } else {
+    const d = extraDraft, players = extraPlayers();
+    html += '<div class="team-card" style="margin-top:10px;">';
+    html += '<label class="field">Coppia A</label><div class="team-players">'+extraSelect('a1',players)+extraSelect('a2',players)+'</div>';
+    html += '<label class="field" style="margin-top:12px;">Coppia B</label><div class="team-players">'+extraSelect('b1',players)+extraSelect('b2',players)+'</div>';
+    html += pairStrengthHtml(d.a1,d.a2,d.b1,d.b2);
+    html += '<div class="row2" style="margin-top:12px;">';
+    html += '<div><label class="field">Game coppia A</label><input id="extra_s1" type="number" min="0" inputmode="numeric" value="'+esc(d.s1)+'" oninput="extraDraft.s1=this.value; toggleTbRow(\'extra_s1\',\'extra_s2\',\'extraTbRow\')" /></div>';
+    html += '<div><label class="field">Game coppia B</label><input id="extra_s2" type="number" min="0" inputmode="numeric" value="'+esc(d.s2)+'" oninput="extraDraft.s2=this.value; toggleTbRow(\'extra_s1\',\'extra_s2\',\'extraTbRow\')" /></div>';
+    html += '</div>';
+    html += '<div class="tb-row" id="extraTbRow" style="'+(d.s1==='6'&&d.s2==='6'?'':'display:none;')+'"><span class="tb-label">Tie-break</span><input class="score-input tb-input" type="number" min="0" inputmode="numeric" value="'+esc(d.tb1)+'" oninput="extraDraft.tb1=this.value" /><span class="dash">&ndash;</span><input class="score-input tb-input" type="number" min="0" inputmode="numeric" value="'+esc(d.tb2)+'" oninput="extraDraft.tb2=this.value" /></div>';
+    if(t.unofficial){
+      html += '<p class="hint" style="margin-top:12px;">Torneo di prova: le extra non contano per il rating.</p>';
+    } else {
+      html += '<label class="field" style="margin-top:12px;">Peso sul rating</label>';
+      html += '<select onchange="setExtraField(\'rating\',this.value)">';
+      [['reduced','Ridotto (×'+String(EXTRA_K_FACTOR).replace('.',',')+')'],['full','Pieno'],['none','Non conta']].forEach(([v,label]) => {
+        html += '<option value="'+v+'"'+(d.rating===v?' selected':'')+'>'+label+'</option>';
+      });
+      html += '</select>';
+    }
+    html += '<p class="err" id="extraErr"></p>';
+    html += '<div class="btn-pair" style="margin-top:12px;"><button class="ghost" onclick="closeExtraForm()">Annulla</button><button class="primary" onclick="saveExtra()">Salva partita</button></div>';
+    html += '</div>';
+  }
+  html += '</section>';
+  return html;
+}
+
+function ratingSummaryView(){
+  if(!ratingSummary) return '';
+  let html = '<section><p class="section-label">Rating aggiornati</p>';
+  html += '<div class="rank-list">';
+  ratingSummary.forEach(r => {
+    const d = Math.round((r.after - r.before)*10)/10;
+    html += '<div class="rank-row"><span class="rank-name">'+esc(r.name)+'</span>';
+    html += '<span class="rank-meta">'+Math.round(r.before)+' &rarr; '+Math.round(r.after)+'</span>';
+    html += '<span class="delta wide '+(d>0?'up':(d<0?'down':'same'))+'">'+(d>0?'+':'')+d.toFixed(1)+'</span></div>';
+  });
+  html += '</div><div class="btn-pair"><button class="secondary" style="margin-top:0;" onclick="shareRatingSummaryWhatsApp()">Condividi variazioni</button><button class="ghost" style="margin-top:0;" onclick="ratingSummary=null;render();">Chiudi</button></div></section>';
+  return html;
+}
+
+function rosterPanel(){
+  const list = activeKeys().map(k => ({key:k, ...roster[k]})).sort((a,b)=> a.name.localeCompare(b.name));
+  let html = '<section><p class="section-label">Partecipanti'+(selected.size>0 ? ' &middot; '+selected.size+' selezionati' : '')+'</p>';
+  html += '<p class="hint">Seleziona chi gioca stasera. Nuovi nomi si aggiungono alla rubrica e restano per le prossime volte.</p>';
+  html += '<div class="add-row"><input type="text" id="newPlayer" placeholder="Nome nuovo partecipante" onkeydown="if(event.key===\'Enter\'){event.preventDefault();addNewPlayer();}" /><button class="addbtn" onclick="addNewPlayer()">Aggiungi</button></div>';
+
+  if(list.length === 0){
+    html += '<p class="roster-empty">Nessun partecipante ancora: aggiungine uno per iniziare.</p>';
+  } else {
+    html += '<div class="btn-pair" style="margin-bottom:10px;"><button class="small" onclick="selectAll()">Seleziona tutti</button><button class="small" onclick="deselectAll()">Deseleziona tutti</button></div>';
+    html += '<div class="roster-list">';
+    list.forEach(p => {
+      html += '<div class="roster-row">';
+      html += '<input type="checkbox" '+(selected.has(p.key)?'checked':'')+' onchange="toggleSelected(\''+p.key+'\',this.checked)" />';
+      if(editingKey === p.key){
+        html += '<input class="rname rename-input" id="rename_'+p.key+'" type="text" value="'+esc(p.name)+'" onkeydown="if(event.key===\'Enter\'){saveRename(\''+p.key+'\')}" />';
+        html += '<input class="rating-input" id="ratingedit_'+p.key+'" type="number" step="1" inputmode="decimal" aria-label="Rating iniziale" value="'+(Math.round((p.elo0===undefined?START_ELO:p.elo0)*10)/10)+'" onkeydown="if(event.key===\'Enter\'){saveRename(\''+p.key+'\')}" />';
+        html += '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;margin-left:4px;" title="Il suo rating resta fisso al valore qui sopra: non si aggiorna mai coi risultati."><input type="checkbox" id="frozenedit_'+p.key+'" '+(p.frozen?'checked':'')+' style="width:16px;height:16px;accent-color:var(--ball);" /> ❄ Congelato</label>';
+        html += '<div class="actions"><button class="small" onclick="saveRename(\''+p.key+'\')">Salva</button></div>';
+      } else if(deleteArmedKey === p.key){
+        html += '<span class="rname rname-text">Eliminare '+p.name+'?</span>';
+        html += '<div class="actions"><button class="small danger" onclick="confirmDelete(\''+p.key+'\')">Elimina</button><button class="small" onclick="cancelDelete()">Annulla</button></div>';
+      } else {
+        html += '<span class="rname rname-text">'+p.name+'</span>';
+        html += '<select class="side-select" onchange="setSide(\''+p.key+'\',this.value)">';
+        [['','–'],['D','Dx'],['S','Sx']].forEach(([v,label]) => { html += '<option value="'+v+'"'+((p.side||'')===v?' selected':'')+'>'+label+'</option>'; });
+        html += '</select>';
+        html += '<span class="wr">'+Math.round(p.elo||START_ELO)+(p.frozen?' ❄':'')+'</span>';
+        html += '<div class="actions"><button class="small" onclick="startRename(\''+p.key+'\')">Modifica</button><button class="small danger" onclick="askDelete(\''+p.key+'\')">✕</button></div>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+    if(editingKey && roster[editingKey]){
+      html += '<p class="hint" style="margin-top:8px;">Modifica: nome, rating iniziale (da qui partono Elo e Glicko-2, di base 1000) e ❄ Congelato (rating fisso, fuori classifica — utile per ospiti di categoria superiore).</p>';
+    }
+    if(rosterMsg){ html += '<p class="err" style="margin-top:6px;">'+esc(rosterMsg)+'</p>'; }
+  }
+  html += '</section>';
+  return html;
+}
+
+// ---------- posizioni e frecce: confronto tra la classifica dopo l'ultimo torneo archiviato e quella dopo il penultimo ----------
+
+function positionsElo(list){
+  const st = computeEloStates(list, false);
+  const rows = activeKeys()
+    .map(id => { const p = roster[id]; return { id, name:p.name, elo: st[id] ? st[id].elo : p.elo0, matches: st[id] ? st[id].matches : (p.matches0||0), frozen:!!p.frozen }; })
+    .filter(r => r.matches > 0 && !r.frozen)
+    .sort((a,b)=> b.elo-a.elo || a.name.localeCompare(b.name));
+  const ranks = computeRanks(rows, r => Math.round(r.elo));
+  const m = {}; rows.forEach((r,i) => { m[r.id] = ranks[i].rank; });
+  return m;
+}
+function positionsWin(list){
+  const st = computeEloStates(list, false);
+  const rows = activeKeys().map(id => {
+    const p = roster[id];
+    const sv = st[id] || { matches:p.matches0||0, wins:p.wins0||0 };
+    return { id, name:p.name, matches:sv.matches, wr: sv.matches>0 ? sv.wins/sv.matches : null, frozen:!!p.frozen };
+  }).filter(r => r.matches >= MIN_MATCHES_WINRATE && !r.frozen).sort((a,b)=> b.wr-a.wr || b.matches-a.matches || a.name.localeCompare(b.name));
+  const ranks = computeRanks(rows, r => Math.round(r.wr*100));
+  const m = {}; rows.forEach((r,i) => { m[r.id] = ranks[i].rank; });
+  return m;
+}
+function positionsGlicko(list){
+  const rows = computeGlicko(list)
+    .filter(r => !(roster[r.id] && roster[r.id].frozen))
+    .sort((a,b)=> b.rating-a.rating || a.name.localeCompare(b.name));
+  const ranks = computeRanks(rows, r => Math.round(r.rating));
+  const m = {}; rows.forEach((r,i) => { m[r.id] = ranks[i].rank; });
+  return m;
+}
+function positionsTeams(list){
+  const rows = teamStats(list, false).filter(x=>x.matches>0).sort((a,b)=>{
+    const wa = a.wins/a.matches, wb = b.wins/b.matches;
+    return wb-wa || (b.setsWon-b.setsLost)-(a.setsWon-a.setsLost) || a.name.localeCompare(b.name);
+  });
+  const ranks = computeRanks(rows, tm => Math.round((tm.wins/tm.matches)*100));
+  const m = {}; rows.forEach((tm,i) => { m[tm.key] = ranks[i].rank; });
+  return m;
+}
+// cur = posizioni dopo l'ultimo torneo archiviato, prev = dopo il penultimo (null se ce n'è uno solo o nessuno)
+function movement(fn){
+  return { cur: fn(archive), prev: archive.length >= 2 ? fn(archive.slice(0, -1)) : null };
+}
+function arrow(mv, key){
+  if(!mv.prev || mv.cur[key] === undefined) return '<span class="delta same">&ndash;</span>';
+  return deltaTag(mv.prev[key], mv.cur[key]);
+}
+function deltaTag(prevRank, currentIdx){
+  if(prevRank === undefined) return '<span class="delta new">nuovo</span>';
+  const d = prevRank - currentIdx;
+  if(d > 0) return '<span class="delta up">&#9650;'+d+'</span>';
+  if(d < 0) return '<span class="delta down">&#9660;'+Math.abs(d)+'</span>';
+  return '<span class="delta same">&ndash;</span>';
+}
+
+// ---------- Glicko-2 (calcolato dall'archivio: ogni torneo chiuso è un periodo di valutazione) ----------
+
+const G2_SCALE = 173.7178, G2_TAU = 0.5, G2_INIT_SIGMA = 0.06, G2_INIT_PHI = 350/173.7178;
+const G2_BASE = START_ELO;   // scala centrata come l'Elo dell'app, così i numeri sono confrontabili
+
+function g2g(phi){ return 1/Math.sqrt(1+3*phi*phi/(Math.PI*Math.PI)); }
+function g2E(mu, muJ, phiJ){ return 1/(1+Math.exp(-g2g(phiJ)*(mu-muJ))); }
+
+// pl: {mu, phi, sigma} — games: [{mu, phi, s, w}] (w = peso della partita, 1 = piena)
+function g2Update(pl, games){
+  const cap = 350/G2_SCALE;
+  if(games.length === 0){
+    return { mu:pl.mu, phi:Math.min(cap, Math.sqrt(pl.phi*pl.phi + pl.sigma*pl.sigma)), sigma:pl.sigma };
+  }
+  let vInv = 0, dSum = 0;
+  games.forEach(gm => {
+    const g = g2g(gm.phi), E = g2E(pl.mu, gm.mu, gm.phi);
+    vInv += gm.w*g*g*E*(1-E);
+    dSum += gm.w*g*(gm.s-E);
+  });
+  const v = 1/vInv, delta = v*dSum;
+  const a = Math.log(pl.sigma*pl.sigma), tau2 = G2_TAU*G2_TAU, phi2 = pl.phi*pl.phi;
+  const f = x => { const ex = Math.exp(x); return ex*(delta*delta-phi2-v-ex)/(2*Math.pow(phi2+v+ex,2)) - (x-a)/tau2; };
+  let A = a, B;
+  if(delta*delta > phi2+v){ B = Math.log(delta*delta-phi2-v); }
+  else { let k = 1; while(f(a-k*G2_TAU) < 0 && k < 100) k++; B = a-k*G2_TAU; }
+  let fA = f(A), fB = f(B), iter = 0;
+  while(Math.abs(B-A) > 1e-6 && iter++ < 100){
+    const C = A + (A-B)*fA/(fB-fA), fC = f(C);
+    if(fC*fB < 0){ A = B; fA = fB; } else { fA = fA/2; }
+    B = C; fB = fC;
+  }
+  const sigmaNew = Math.exp(A/2);
+  const phiStar = Math.sqrt(phi2 + sigmaNew*sigmaNew);
+  const phiNew = 1/Math.sqrt(1/(phiStar*phiStar) + 1/v);
+  return { mu: pl.mu + phiNew*phiNew*dSum, phi: Math.min(cap, phiNew), sigma: sigmaNew };
+}
+
+function computeGlicko(list, hook){
+  list = (list || archive).filter(a => !a.excluded);
+  const byId = roster;  // la chiave della rubrica È l'id
+  const P = {};
+  const get = id => {
+    if(!P[id]){
+      const base = (byId[id] && byId[id].elo0 !== undefined) ? byId[id].elo0 : G2_BASE;  // parte dallo stesso rating iniziale impostato per l'Elo (utile per gli ospiti "congelati")
+      P[id] = { id, mu:(base - G2_BASE)/G2_SCALE, phi:G2_INIT_PHI, sigma:G2_INIT_SIGMA, games:0, seen:false };
+    }
+    return P[id];
+  };
+  list.forEach((a, pi) => {
+    const gamesOf = {};
+    archiveGames(a).forEach(gm => {
+      const A = gm.idsA.map(get), B = gm.idsB.map(get);
+      if(A.length === 0 || B.length === 0) return;
+      if(hook) hook(A, B, gm, pi);
+      const S = gameScore(gm.s1, gm.s2, gm.tb);
+      const muA = A.reduce((x,y)=>x+y.mu,0)/A.length, muB = B.reduce((x,y)=>x+y.mu,0)/B.length;
+      const varOf = team => team.reduce((x,y)=>x+y.phi*y.phi,0);
+      function addFor(own, opp, diff, sc){
+        own.forEach(pl => {
+          // L'avversario "equivalente" tiene conto del compagno: la differenza di forza è quella tra le due coppie.
+          const partnersVar = varOf(own) - pl.phi*pl.phi;
+          const phiOpp = Math.sqrt(varOf(opp)/(opp.length*opp.length) + partnersVar/(own.length*own.length));
+          (gamesOf[pl.id] = gamesOf[pl.id] || []).push({ mu: pl.mu - diff, phi: phiOpp, s: sc, w: gm.weight });
+        });
+      }
+      addFor(A, B, muA-muB, S);
+      addFor(B, A, muB-muA, 1-S);
+      A.concat(B).forEach(pl => { pl.seen = true; pl.games++; });
+    });
+    // Tutti i giocatori già visti si aggiornano insieme, a partire dallo stato di inizio periodo.
+    const next = {};
+    Object.values(P).forEach(pl => { if(pl.seen && !(byId[pl.id] && byId[pl.id].frozen)) next[pl.id] = g2Update(pl, gamesOf[pl.id] || []); });
+    Object.keys(next).forEach(id => Object.assign(P[id], next[id]));
+  });
+  return Object.values(P)
+    .filter(pl => pl.games > 0 && byId[pl.id] && !byId[pl.id].hidden)
+    .map(pl => ({ id:pl.id, name:byId[pl.id].name, games:pl.games, rating: G2_BASE + G2_SCALE*pl.mu, rd: G2_SCALE*pl.phi }));
+}
+
+// ---------- diagnostica: quanto i rating prevedono i risultati ----------
+
+let showDiag = false;
+function scoreWL(s1, s2, tb){ return matchWinner(s1, s2, tb); }
+
+// Ogni partita (dal 2° torneo in poi, escluse le patte) è prevista con i rating di inizio torneo: p = probabilità che la coppia A vinca.
+function eloPredictions(opts){
+  const log = [];
+  const avg = arr => arr.reduce((a,b)=>a+b,0)/arr.length;
+  computeEloStates(archive, false, Object.assign({}, opts, { onPeriod: (a, entries, snap, pi) => {
+    if(pi === 0) return;
+    const info = id => snap[id] ? snap[id].elo : START_ELO;
+    entries.forEach(e => {
+      const res = matchWinner(e.s1, e.s2, e.tb);
+      if(res === 0.5 || !e.idsA.length || !e.idsB.length) return;
+      const rA = avg(e.idsA.map(info)), rB = avg(e.idsB.map(info));
+      log.push({ p: 1/(1+Math.pow(10,(rB-rA)/400)), y: res });
+    });
+  }}));
+  return log;
+}
+function glickoPredictions(){
+  const log = [];
+  computeGlicko(archive, (A, B, gm, pi) => {
+    const res = matchWinner(gm.s1, gm.s2, gm.tb);
+    if(pi === 0 || res === 0.5) return;
+    const muA = A.reduce((x,y)=>x+y.mu,0)/A.length, muB = B.reduce((x,y)=>x+y.mu,0)/B.length;
+    const v = (A.reduce((x,y)=>x+y.phi*y.phi,0) + B.reduce((x,y)=>x+y.phi*y.phi,0))/4;
+    log.push({ p: 1/(1+Math.exp(-g2g(Math.sqrt(v))*(muA-muB))), y: res });
+  });
+  return log;
+}
+function predictionStats(log){
+  let brier = 0, ll = 0, hit = 0, decisive = 0;
+  log.forEach(r => {
+    const pp = Math.min(0.999, Math.max(0.001, r.p));
+    brier += Math.pow(pp - r.y, 2);
+    ll += -(r.y*Math.log(pp) + (1-r.y)*Math.log(1-pp));
+    if(Math.abs(r.p - 0.5) > 1e-9){ decisive++; if((r.p > 0.5) === (r.y === 1)) hit++; }
+  });
+  const n = log.length;
+  return { n, decisive, acc: decisive ? hit/decisive : null, brier: n ? brier/n : null, ll: n ? ll/n : null };
+}
+function diagView(){
+  const variants = [
+    ['Elo attuale', eloPredictions({})],
+    ['Elo, K dimezzato', eloPredictions({kScale:0.5})],
+    ['Elo, K doppio', eloPredictions({kScale:2})],
+    ['Elo, solo V/S', eloPredictions({scoreFn:scoreWL})],
+    ['Glicko-2', glickoPredictions()]
+  ];
+  const n = variants[0][1].length;
+  const f3 = x => x === null ? '—' : x.toFixed(3).replace('.', ',');
+  let html = '<section><p class="section-label">Diagnostica rating</p>';
+  html += '<p class="hint">Ogni partita, dal 2° torneo in poi, viene prevista con i rating di inizio torneo. Vince il sistema che sbaglia meno. Brier e log-loss: più basso è meglio. Tirare a caso dà 0,250 e 0,693.</p>';
+  if(n < 20){
+    html += '<p class="roster-empty">Partite valutabili: '+n+'. Servono più tornei: con meno di circa 40 partite le differenze sono rumore.</p>';
+  } else if(n < 40){
+    html += '<p class="hint"><b>Partite valutabili: '+n+'.</b> Ancora poche: guarda le tendenze, non le differenze piccole.</p>';
+  } else {
+    html += '<p class="hint"><b>Partite valutabili: '+n+'.</b></p>';
+  }
+  html += '<table><tr><th>Sistema</th><th class="num">Favorito</th><th class="num">Brier</th><th class="num">Log-loss</th></tr>';
+  html += '<tr><td>Tirare a caso</td><td class="num">50%</td><td class="num">0,250</td><td class="num">0,693</td></tr>';
+  variants.forEach(([label, log]) => {
+    const st = predictionStats(log);
+    html += '<tr><td>'+label+'</td><td class="num">'+(st.acc === null ? '—' : Math.round(st.acc*100)+'%')+'</td><td class="num">'+f3(st.brier)+'</td><td class="num">'+f3(st.ll)+'</td></tr>';
+  });
+  html += '</table>';
+  // calibrazione dell'Elo attuale: quando dice "70% per il favorito", il favorito vince davvero il 70%?
+  const cal = variants[0][1].filter(r => Math.abs(r.p-0.5) > 1e-9).map(r => r.p >= 0.5 ? { p:r.p, y:r.y } : { p:1-r.p, y:1-r.y });
+  const bins = [[0.5,0.6],[0.6,0.7],[0.7,0.8],[0.8,1.01]];
+  html += '<p class="section-label" style="margin-top:16px;">Calibrazione dell\'Elo attuale</p>';
+  html += '<table><tr><th>Previsione favorito</th><th class="num">Partite</th><th class="num">Previsto</th><th class="num">Reale</th></tr>';
+  bins.forEach(([lo, hi]) => {
+    const rows = cal.filter(r => r.p >= lo && r.p < hi);
+    const label = Math.round(lo*100)+'–'+Math.min(100, Math.round(hi*100))+'%';
+    if(rows.length === 0){ html += '<tr><td>'+label+'</td><td class="num">0</td><td class="num">—</td><td class="num">—</td></tr>'; return; }
+    const pm = rows.reduce((x,y)=>x+y.p,0)/rows.length, ym = rows.reduce((x,y)=>x+y.y,0)/rows.length;
+    html += '<tr><td>'+label+'</td><td class="num">'+rows.length+'</td><td class="num">'+Math.round(pm*100)+'%</td><td class="num">'+Math.round(ym*100)+'%</td></tr>';
+  });
+  html += '</table>';
+  html += '<p class="hint" style="margin-top:8px;">Se il "reale" è molto sotto il "previsto", i rating sono troppo estremi (K troppo alto o punteggio troppo generoso). Se è sopra, sono troppo prudenti.</p>';
+  html += '<button class="ghost" onclick="showDiag=false;showRanking=true;render();">Torna alla classifica</button>';
+  html += '</section>';
+  return html;
+}
+
+function fmtWins(w){ return Number.isInteger(w) ? String(w) : w.toFixed(1); }
+
+
+// ---------- Condivisione turno (WhatsApp / condivisione nativa) ----------
+// Formato pensato per il telefono: i risultati e gli abbinamenti sono righe di testo normale che WhatsApp
+// manda a capo da sé; solo le classifiche numeriche usano il blocco monospace, con righe di ~30 caratteri.
+function matchNamesForShare(m){
+  if(t.mode && t.mode !== 'fixed') return { a: m.aName, b: m.bName };
+  const teamA = t.teams.find(x => x.id === m[0]), teamB = t.teams.find(x => x.id === m[1]);
+  return { a: teamA ? teamA.name : '?', b: teamB ? teamB.name : '?' };
+}
+
+function padR(str, n){
+  str = String(str);
+  return str.length >= n ? str : str + ' '.repeat(n - str.length);
+}
+function padL(str, n){
+  str = String(str);
+  return str.length >= n ? str : ' '.repeat(n - str.length) + str;
+}
+function cutStr(str, n){
+  str = String(str);
+  return str.length <= n ? str : str.slice(0, n - 1) + '…';
+}
+// Blocco monospace WhatsApp (allineamento colonne più affidabile dei soli tab)
+function monoBlock(lines){
+  return '```\n' + lines.filter(Boolean).join('\n') + '\n```\n';
+}
+function scoreText(m){ return m.s1 + '-' + m.s2 + (m.tb ? ' (tb ' + m.tb[0] + '-' + m.tb[1] + ')' : ''); }
+
+function shareText(text, title){
+  title = title || 'Torneo Padel';
+  if(navigator.share){
+    navigator.share({ title: title, text: text }).catch(() => {});
+  } else if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(() => { dataMsg = 'Testo copiato negli appunti: incollalo su WhatsApp.'; render(); }).catch(() => { prompt('Copia il testo:', text); });
+  } else {
+    prompt('Copia il testo:', text);
+  }
+}
+function fmtDateIT(iso){
+  try{
+    const d = new Date(iso);
+    if(isNaN(d.getTime())) return '';
+    return d.toLocaleDateString('it-IT', { day:'numeric', month:'short', year:'numeric' });
+  }catch(e){ return ''; }
+}
+function restingNamesForShare(){
+  if(!t.restingThisRound || !t.restingThisRound.length) return '';
+  return (t.mode && t.mode !== 'fixed')
+    ? t.restingThisRound.map(playerName).join(', ')
+    : t.restingThisRound.map(id => { const tm = t.teams.find(x => x.id === id); return tm ? tm.name : id; }).join(', ');
+}
+function shareRoundWhatsApp(){
+  if(!t.currentMatches || !t.currentMatches.length) return;
+  let text = '🎾 *TORNEO PADEL – TURNO ' + t.round + '*\n';
+  t.currentMatches.forEach((m, idx) => {
+    const n = matchNamesForShare(m);
+    text += '\n*Campo ' + (idx + 1) + '*\n' + n.a + '\n🆚 ' + n.b + '\n';
+  });
+  const rests = restingNamesForShare();
+  if(rests) text += '\n🛋 *Riposano:* ' + rests + '\n';
+  shareText(text.trim(), 'Turno Padel');
+}
+function eloChangesBlock(changes, limit){
+  const lines = [padR('Giocatore', 12) + padL('Prima', 6) + padL('Dopo', 6) + padL('Δ', 7)];
+  const sorted = [...changes].sort((x,y)=>(y.after-y.before)-(x.after-x.before));
+  (limit ? sorted.slice(0, limit) : sorted).forEach(r => {
+    const d = Math.round((r.after - r.before) * 10) / 10;
+    if(Math.abs(d) < 0.05) return;
+    lines.push(padR(cutStr(r.name, 11), 12) + padL(Math.round(r.before), 6) + padL(Math.round(r.after), 6) + padL((d > 0 ? '+' : '') + d, 7));
+  });
+  if(limit && sorted.length > limit) lines.push('… +' + (sorted.length - limit) + ' altri');
+  return monoBlock(lines);
+}
+function formatArchiveResults(a){
+  const mode = a.mode === 'messicano' ? 'Messicano' : (a.mode === 'americano' ? 'Americano' : 'Squadre fisse');
+  const when = fmtDateIT(a.date);
+  let text = '🎾 *RISULTATI TORNEO*\n';
+  if(when) text += '📅 ' + when + '\n';
+  text += '🏷 ' + mode;
+  if(a.unofficial) text += ' · prova';
+  if(a.excluded) text += ' · escluso dal rating';
+  text += '\n\n';
+
+  (a.history || []).forEach(h => {
+    text += '*Turno ' + h.round + '*\n';
+    (h.matches || []).forEach(m => { text += '• ' + m.a + ' – ' + m.b + ' → *' + scoreText(m) + '*\n'; });
+    text += '\n';
+  });
+
+  if(a.extras && a.extras.length){
+    text += '*Partite extra*\n';
+    a.extras.forEach(x => {
+      const w = x.weight !== undefined ? x.weight : (x.rating==='full' ? 1 : (x.rating==='reduced' ? 0.5 : 0));
+      const tag = w === 0 ? ' (senza rating)' : (w < 1 ? ' (rating ridotto)' : '');
+      text += '• ' + (x.teamA || []).join(' & ') + ' – ' + (x.teamB || []).join(' & ') + ' → *' + scoreText(x) + '*' + tag + '\n';
+    });
+    text += '\n';
+  }
+
+  if(a.mode && a.mode !== 'fixed'){
+    const st = {};
+    (a.history || []).forEach(h => (h.matches || []).forEach(m => {
+      const add = (ids, sW, sL, win) => (ids || []).forEach(id => {
+        if(!st[id]) st[id] = { id, wins:0, gW:0, gL:0 };
+        st[id].gW += sW; st[id].gL += sL; st[id].wins += win;
+      });
+      const res = matchWinner(m.s1, m.s2, m.tb);
+      const wA = res === 1 ? 1 : (res === 0.5 ? 0.5 : 0);
+      const wB = res === 0 ? 1 : (res === 0.5 ? 0.5 : 0);
+      add(m.pa, m.s1, m.s2, wA);
+      add(m.pb, m.s2, m.s1, wB);
+    }));
+    const names = archiveIdNames(a);
+    const rows = Object.values(st).map(r => ({
+      name: names[r.id] || (roster[r.id] && roster[r.id].name) || r.id,
+      wins: r.wins, gW: r.gW, gL: r.gL
+    })).sort((x,y) => y.wins - x.wins || (y.gW-y.gL) - (x.gW-x.gL) || y.gW - x.gW);
+    if(rows.length){
+      text += '*Classifica serata*\n';
+      const lines = [padR('#', 4) + padR('Giocatore', 12) + padL('V', 4) + padL('Game', 8)];
+      rows.forEach((r,i) => {
+        lines.push(padR(String(i+1)+'.', 4) + padR(cutStr(r.name, 11), 12) + padL(fmtWins(r.wins), 4) + padL(r.gW + '-' + r.gL, 8));
+      });
+      text += monoBlock(lines) + '\n';
+    }
+  } else if(a.teams && a.teams.length){
+    const teams = (a.teams || []).map((tm, idx) => {
+      let wins = 0, setsWon = 0, setsLost = 0;
+      (a.history || []).forEach(h => (h.matches || []).forEach(m => {
+        const isA = (m.aId === tm.id) || (m.aId === idx) || (m.a === tm.name);
+        const isB = (m.bId === tm.id) || (m.bId === idx) || (m.b === tm.name);
+        if(isA){ setsWon += m.s1; setsLost += m.s2; const res = matchWinner(m.s1,m.s2,m.tb); if(res===1) wins++; else if(res===0.5) wins += 0.5; }
+        if(isB){ setsWon += m.s2; setsLost += m.s1; const res = matchWinner(m.s1,m.s2,m.tb); if(res===0) wins++; else if(res===0.5) wins += 0.5; }
+      }));
+      return { name: tm.name, wins, setsWon, setsLost };
+    }).filter(x => x.name).sort((x,y) => y.wins - x.wins || (y.setsWon-y.setsLost) - (x.setsWon-x.setsLost));
+    if(teams.some(x => x.wins || x.setsWon || x.setsLost)){
+      text += '*Classifica squadre*\n';
+      teams.forEach((r,i) => {
+        text += (i+1) + '. ' + r.name + ' — ' + fmtWins(r.wins) + ' V (game ' + r.setsWon + '-' + r.setsLost + ')\n';
+      });
+      text += '\n';
+    }
+  }
+
+  if(a.ratingChanges && a.ratingChanges.length){
+    text += '*Variazioni Elo*\n' + eloChangesBlock(a.ratingChanges, 15) + '\n';
+  }
+  return text.trim();
+}
+function shareArchiveResults(i){
+  const a = archive[i];
+  if(!a) return;
+  shareText(formatArchiveResults(a), 'Risultati torneo');
+}
+function shareLiveResults(){
+  if(!t.history || !t.history.length){
+    dataMsg = 'Non ci sono ancora risultati da condividere in questo torneo.';
+    render();
+    return;
+  }
+  // Niente variazioni di rating: appartengono all'ultimo torneo chiuso, non a quello in corso.
+  shareText(formatArchiveResults({
+    date: new Date().toISOString(),
+    mode: t.mode || 'fixed',
+    unofficial: !!t.unofficial,
+    history: t.history,
+    extras: t.extras || [],
+    teams: t.teams || [],
+    ratingChanges: []
+  }), 'Risultati torneo');
+}
+function shareRankingWhatsApp(){
+  const all = activeKeys().map(k => ({ key:k, ...roster[k] })).filter(p => !p.frozen);
+  let text = '';
+  let lines = [];
+  const arrowOf = (mv, key) => {
+    if(mv.prev && mv.prev[key] !== undefined && mv.cur[key] !== undefined){
+      const d = mv.prev[key] - mv.cur[key];
+      return d > 0 ? '↑' + d : (d < 0 ? '↓' + (-d) : '=');
+    }
+    if(mv.cur[key] !== undefined && (!mv.prev || mv.prev[key] === undefined)) return '•';
+    return '';
+  };
+  if(rankMode === 'glicko'){
+    text = '📊 *CLASSIFICA GLICKO-2*\n\n';
+    const rows = computeGlicko().filter(r => !(roster[r.id] && roster[r.id].frozen)).sort((a,b)=> b.rating-a.rating || a.name.localeCompare(b.name));
+    const ranks = computeRanks(rows, r => Math.round(r.rating));
+    const mv = movement(positionsGlicko);
+    lines.push(padR('#', 4) + padR('Giocatore', 12) + padL('Rating', 7) + padL('±RD', 5) + padL('Trend', 6));
+    rows.forEach((r,i) => {
+      lines.push(padR(rankLabel(ranks[i]), 4) + padR(cutStr(r.name, 11), 12) + padL(Math.round(r.rating), 7) + padL(Math.round(r.rd), 5) + padL(arrowOf(mv, r.id), 6));
+    });
+  } else if(rankMode === 'win'){
+    text = '📊 *CLASSIFICA % VITTORIE*\n(min. ' + MIN_MATCHES_WINRATE + ' partite)\n\n';
+    const ranked = all.filter(p => p.matches >= MIN_MATCHES_WINRATE)
+      .sort((a,b)=> winRate(b)-winRate(a) || b.matches-a.matches || a.name.localeCompare(b.name));
+    const ranks = computeRanks(ranked, p => Math.round(winRate(p)*100));
+    const mv = movement(positionsWin);
+    lines.push(padR('#', 4) + padR('Giocatore', 12) + padL('%', 5) + padL('V/P', 7) + padL('Trend', 6));
+    ranked.forEach((p,i) => {
+      lines.push(padR(rankLabel(ranks[i]), 4) + padR(cutStr(p.name, 11), 12) + padL(Math.round(winRate(p)*100) + '%', 5) + padL(fmtWins(p.wins) + '/' + p.matches, 7) + padL(arrowOf(mv, p.key), 6));
+    });
+  } else {
+    text = '📊 *CLASSIFICA ELO*\n\n';
+    const list = all.filter(p => p.matches > 0).sort((a,b)=> (b.elo||START_ELO)-(a.elo||START_ELO) || a.name.localeCompare(b.name));
+    const ranks = computeRanks(list, p => Math.round(p.elo||START_ELO));
+    const mv = movement(positionsElo);
+    lines.push(padR('#', 4) + padR('Giocatore', 12) + padL('Elo', 6) + padL('Trend', 6));
+    list.forEach((p,i) => {
+      lines.push(padR(rankLabel(ranks[i]), 4) + padR(cutStr(p.name, 11), 12) + padL(Math.round(p.elo||START_ELO), 6) + padL(arrowOf(mv, p.key), 6));
+    });
+  }
+  text += monoBlock(lines);
+  const frozen = activeKeys().filter(k => roster[k].frozen).map(k => roster[k].name);
+  if(frozen.length) text += '\n❄ Congelati: ' + frozen.join(', ') + '\n';
+  text += '\n_↑↓ = cambio posizione vs torneo precedente_';
+  shareText(text.trim(), 'Classifica Padel');
+}
+function shareTrendsWhatsApp(){
+  if(archive.length < 1){
+    dataMsg = 'Serve almeno un torneo in archivio per i trend.';
+    render();
+    return;
+  }
+  const last = archive[archive.length - 1];
+  const when = fmtDateIT(last.date);
+  let text = '📈 *TREND DOPO L\'ULTIMO TORNEO*';
+  if(when) text += '\n📅 ' + when;
+  text += '\n\n';
+
+  if(last.ratingChanges && last.ratingChanges.length){
+    text += '*Variazioni Elo*\n' + eloChangesBlock(last.ratingChanges) + '\n';
+  }
+
+  function posBlock(label, fn){
+    const mv = movement(fn);
+    if(!mv.prev) return '';
+    const rows = [];
+    Object.keys(mv.cur).forEach(id => {
+      if(mv.prev[id] === undefined) return;
+      const d = mv.prev[id] - mv.cur[id];
+      if(d === 0) return;
+      rows.push({ name: roster[id] ? roster[id].name : id, d, from: mv.prev[id], to: mv.cur[id] });
+    });
+    rows.sort((a,b) => b.d - a.d);
+    if(!rows.length) return '';
+    const lines = [padR('Giocatore', 12) + padL('Da', 5) + padL('A', 5) + padL('Δ pos', 7)];
+    rows.forEach(r => {
+      lines.push(padR(cutStr(r.name, 11), 12) + padL(r.from + 'ª', 5) + padL(r.to + 'ª', 5) + padL((r.d > 0 ? '↑+' : '↓') + Math.abs(r.d), 7));
+    });
+    return '*' + label + '*\n' + monoBlock(lines) + '\n';
+  }
+  const before = text.length;
+  text += posBlock('Posizioni Elo', positionsElo);
+  text += posBlock('Posizioni Glicko-2', positionsGlicko);
+  text += posBlock('Posizioni % vittorie', positionsWin);
+  if(!(last.ratingChanges && last.ratingChanges.length) && text.length === before){
+    text += '_Nessun movimento rilevante nell\'ultimo torneo._';
+  }
+  shareText(text.trim(), 'Trend Padel');
+}
+function shareRatingSummaryWhatsApp(){
+  if(!ratingSummary || !ratingSummary.length) return;
+  shareText('📊 *VARIAZIONI ELO – ULTIMO TORNEO*\n\n' + eloChangesBlock(ratingSummary).trim(), 'Variazioni Elo');
+}
+
+
+// ---------- Tabellone live (kiosk) + timer ----------
+const KIOSK_DEFAULT_SECS = 15 * 60;
+let kioskTimeLeft = KIOSK_DEFAULT_SECS;
+let kioskTimerInterval = null;
+let kioskRound = null;   // turno per cui il timer è stato impostato; al cambio di turno il timer riparte da 15'
+
+function ensureKioskOverlay(){
+  let el = document.getElementById('kioskOverlay');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'kioskOverlay';
+    document.body.appendChild(el);
+  }
+  return el;
+}
+function kioskIsOpen(){
+  const el = document.getElementById('kioskOverlay');
+  return !!(el && el.style.display !== 'none' && el.style.display !== '');
+}
+function stopKioskTimer(){
+  if(kioskTimerInterval){ clearInterval(kioskTimerInterval); kioskTimerInterval = null; }
+}
+function openKiosk(){
+  if(!t.currentMatches || !t.currentMatches.length) return;
+  if(kioskRound !== t.round){ stopKioskTimer(); kioskTimeLeft = KIOSK_DEFAULT_SECS; kioskRound = t.round; }
+  ensureKioskOverlay().style.display = 'flex';
+  renderKiosk();
+}
+function closeKiosk(){
+  stopKioskTimer();   // il timer si ferma chiudendo il tabellone: nessun conto alla rovescia invisibile
+  const el = document.getElementById('kioskOverlay');
+  if(el) el.style.display = 'none';
+}
+// Chiamata a ogni render(): se il turno è cambiato o è stato chiuso, il tabellone si aggiorna o si chiude.
+function syncKiosk(){
+  if(!kioskIsOpen()) return;
+  if(!t.currentMatches || !t.currentMatches.length){ closeKiosk(); return; }
+  if(kioskRound !== t.round){ stopKioskTimer(); kioskTimeLeft = KIOSK_DEFAULT_SECS; kioskRound = t.round; }
+  renderKiosk();
+}
+function adjustTimer(mins){
+  kioskTimeLeft += mins * 60;
+  if(kioskTimeLeft < 0) kioskTimeLeft = 0;
+  if(kioskTimeLeft > 99 * 60) kioskTimeLeft = 99 * 60;
+  renderKiosk();
+}
+function toggleTimer(){
+  if(kioskTimerInterval){
+    stopKioskTimer();
+  } else if(kioskTimeLeft > 0){
+    kioskTimerInterval = setInterval(() => {
+      if(kioskTimeLeft > 0) kioskTimeLeft--;
+      if(kioskTimeLeft === 0){
+        stopKioskTimer();
+        try{ if(navigator.vibrate) navigator.vibrate([400,150,400,150,400]); }catch(e){}
+      }
+      renderKiosk();
+    }, 1000);
+  }
+  renderKiosk();
+}
+function renderKiosk(){
+  const el = ensureKioskOverlay();
+  const mins = String(Math.floor(kioskTimeLeft / 60)).padStart(2, '0');
+  const secs = String(kioskTimeLeft % 60).padStart(2, '0');
+  const over = kioskTimeLeft === 0;
+  let html = '<div class="kiosk-header"><div class="kiosk-timer" onclick="toggleTimer()" title="Tocca per avviare/pausa"'+(over?' style="color:var(--danger);"':'')+'>'+mins+':'+secs+'</div>';
+  html += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
+  html += '<button class="small" onclick="adjustTimer(1)">+1m</button>';
+  html += '<button class="small" onclick="adjustTimer(-1)">-1m</button>';
+  html += '<button class="small" onclick="adjustTimer(5)">+5m</button>';
+  html += '<button class="small danger" onclick="closeKiosk()">Chiudi</button></div></div>';
+  html += '<p class="section-label" style="margin-bottom:12px;">Turno '+t.round+(t.maxRounds ? ' di '+t.maxRounds : '')+' · '+(over ? 'tempo scaduto!' : (kioskTimerInterval ? 'tocca il timer per mettere in pausa' : 'tocca il timer per avviare'))+'</p>';
+  (t.currentMatches || []).forEach((m, idx) => {
+    const n = matchNamesForShare(m);
+    html += '<div class="kiosk-match"><p class="kiosk-court">Campo '+(idx+1)+'</p>';
+    html += '<div class="kiosk-teams"><span>'+esc(n.a)+'</span><span class="kiosk-vs">vs</span><span>'+esc(n.b)+'</span></div></div>';
+  });
+  const rests = restingNamesForShare();
+  if(rests){
+    html += '<p style="text-align:center;color:var(--ink-dim);margin-top:8px;font-size:14px;">Riposano: '+esc(rests)+'</p>';
+  }
+  el.innerHTML = html;
+}
+
+// ---------- Profilo giocatore (da archivio) ----------
+let viewingPlayerId = null;
+function openPlayerProfile(id){ viewingPlayerId = id; render(); }
+function closePlayerProfile(){ viewingPlayerId = null; render(); }
+
+function playerProfileView(id){
+  const p = roster[id];
+  if(!p) return '';
+  const partners = {}, opponents = {};
+  const eloHistory = [{ label: 'Inizio', val: p.elo0 !== undefined ? p.elo0 : START_ELO }];
+  const glickoHistory = [];
+  const winHistory = [];
+  let cumW = 0, cumM = 0;
+  const glickoSlice = [];
+
+  archive.forEach((a, aIdx) => {
+    if(a.excluded) return;
+    if(a.ratingChanges){
+      const change = a.ratingChanges.find(r => r.id === id);
+      if(change) eloHistory.push({ label: 'T'+(aIdx+1), val: change.after });
+    }
+    // Glicko progressivo: ricalcola dopo ogni torneo incluso
+    glickoSlice.push(a);
+    const gRows = computeGlicko(glickoSlice);
+    const gRow = gRows.find(r => r.id === id);
+    if(gRow) glickoHistory.push({ label: 'T'+(aIdx+1), val: gRow.rating, rd: gRow.rd });
+
+    archiveGames(a).forEach(gm => {
+      const inA = (gm.idsA || []).includes(id), inB = (gm.idsB || []).includes(id);
+      if(!inA && !inB) return;
+      const myTeam = inA ? gm.idsA : gm.idsB;
+      const oppTeam = inA ? gm.idsB : gm.idsA;
+      const res = matchWinner(gm.s1, gm.s2, gm.tb);
+      let winVal = 0.5;
+      if(res === 1) winVal = inA ? 1 : 0;
+      else if(res === 0) winVal = inB ? 1 : 0;
+      else winVal = 0.5;
+
+      cumM++;
+      cumW += winVal;
+      winHistory.push({ label: String(cumM), val: (cumW / cumM) * 100 });
+
+      myTeam.forEach(pid => {
+        if(pid === id) return;
+        if(!partners[pid]) partners[pid] = { matches:0, wins:0 };
+        partners[pid].matches++;
+        partners[pid].wins += winVal;
+      });
+      oppTeam.forEach(oid => {
+        if(!opponents[oid]) opponents[oid] = { matches:0, wins:0 };
+        opponents[oid].matches++;
+        opponents[oid].wins += winVal;
+      });
+    });
+  });
+
+  // Se mancano ratingChanges, ricostruisci Elo dai tornei
+  if(eloHistory.length === 1){
+    const st = computeEloStates(archive, false);
+    // punti per torneo: confronta snap progressivo
+    let running = null;
+    const slice = [];
+    archive.forEach((a, aIdx) => {
+      if(a.excluded) return;
+      slice.push(a);
+      const s2 = computeEloStates(slice, false);
+      if(s2[id]){
+        if(running === null) eloHistory[0] = { label: 'Inizio', val: (roster[id].elo0 !== undefined ? roster[id].elo0 : START_ELO) };
+        eloHistory.push({ label: 'T'+(aIdx+1), val: s2[id].elo });
+        running = s2[id].elo;
+      }
+    });
+  }
+
+  function ranked(obj, asc){
+    return Object.keys(obj).map(k => ({
+      id: k,
+      name: roster[k] ? roster[k].name : k,
+      matches: obj[k].matches,
+      wr: obj[k].wins / obj[k].matches
+    })).filter(x => x.matches >= 2).sort((a,b) => asc ? (a.wr - b.wr) : (b.wr - a.wr));
+  }
+  const bestPartners = ranked(partners, false);
+  const nemeses = ranked(opponents, true);
+
+  function ratingChart(history, title, unitSuffix){
+    if(!history || history.length < 2) return '<p class="hint" style="margin:1rem 0;">'+esc(title)+': dati insufficienti per il grafico.</p>';
+    // Coordinate in pixel di un viewBox largo (320x150): font e punti restano leggibili anche su telefono.
+    const W = 320, H = 150, L = 26, R = 26, T = 24, B = 30;
+    const vals = history.map(e => e.val);
+    const pad = unitSuffix === '%' ? 2 : 15;
+    const minV = Math.min(...vals) - pad, maxV = Math.max(...vals) + pad;
+    const span = Math.max(1e-6, maxV - minV);
+    const X = i => L + (i / (history.length - 1)) * (W - L - R);
+    const Y = v => T + (1 - (v - minV) / span) * (H - T - B);
+    const pts = history.map((e,i) => X(i).toFixed(1) + ',' + Y(e.val).toFixed(1)).join(' ');
+    const many = history.length > 8;   // con molti punti, etichette del valore solo ogni tanto
+    const dots = history.map((e,i) => {
+      const x = X(i).toFixed(1), y = Y(e.val).toFixed(1);
+      const lab = unitSuffix === '%' ? Math.round(e.val) + '%' : Math.round(e.val);
+      const showVal = !many || i === 0 || i === history.length - 1 || i % 2 === 0;
+      const showX = !many || i === 0 || i === history.length - 1 || i % 2 === 0;
+      return '<circle cx="'+x+'" cy="'+y+'" r="4" fill="var(--card)" stroke="var(--ball)" stroke-width="2"/>'
+        + (showVal ? '<text x="'+x+'" y="'+(Y(e.val)-9).toFixed(1)+'" fill="var(--ink)" font-size="11" text-anchor="middle" font-family="var(--font-head)">'+lab+'</text>' : '')
+        + (showX ? '<text x="'+x+'" y="'+(H-8)+'" fill="var(--ink-dim)" font-size="10" text-anchor="middle" font-family="var(--font-head)">'+esc(e.label)+'</text>' : '');
+    }).join('');
+    return '<div style="margin:1.25rem 0 0.5rem;"><p class="section-label">'+esc(title)+'</p>'
+      + '<svg viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+esc(title)+'" style="width:100%;height:auto;display:block;overflow:visible;">'
+      + '<polyline points="'+pts+'" fill="none" stroke="var(--ball)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>'
+      + dots + '</svg></div>';
+  }
+
+  // Grafico in base alla classifica da cui si arriva
+  let svgGraph = '';
+  let headerRating = '';
+  if(rankMode === 'glicko'){
+    svgGraph = ratingChart(glickoHistory, 'Andamento Glicko-2', '');
+    const lastG = glickoHistory.length ? glickoHistory[glickoHistory.length - 1] : null;
+    if(lastG) headerRating = 'Glicko-2 <b>'+Math.round(lastG.val)+'</b>' + (lastG.rd !== undefined ? ' ±'+Math.round(lastG.rd) : '');
+    else headerRating = 'Glicko-2 <b>—</b>';
+  } else if(rankMode === 'win'){
+    svgGraph = ratingChart(winHistory, 'Andamento % vittorie', '%');
+    headerRating = p.matches ? ('% vittorie <b>'+Math.round((p.wins/p.matches)*100)+'%</b>') : '% vittorie <b>—</b>';
+  } else {
+    svgGraph = ratingChart(eloHistory, 'Andamento Elo', '');
+    headerRating = 'Elo <b>'+Math.round(p.elo !== undefined ? p.elo : p.elo0)+'</b>';
+  }
+
+  let html = '<div class="modal-backdrop" onclick="closePlayerProfile()"><div class="modal-content" onclick="event.stopPropagation()">';
+  html += '<h2 style="margin:0 0 4px;font-family:var(--font-head);font-size:22px;">'+esc(p.name)+(p.frozen?' ❄':'')+'</h2>';
+  html += '<p class="sub" style="margin:0 0 1rem;">'+headerRating;
+  if(p.matches) html += ' · '+p.matches+' partite · '+Math.round((p.wins/p.matches)*100)+'% V';
+  html += '</p>';
+  html += svgGraph;
+  html += '<p class="section-label">Chimica (min. 2 partite insieme / contro)</p>';
+  html += '<div class="stat-box"><div><p style="margin:0;font-size:12px;color:var(--ink-dim);">Miglior partner</p>';
+  html += '<p style="margin:4px 0 0;font-weight:600;">'+(bestPartners.length ? esc(bestPartners[0].name) : 'Dati insufficienti')+'</p></div>';
+  if(bestPartners.length) html += '<div class="val">'+Math.round(bestPartners[0].wr*100)+'%<span style="font-size:11px;font-weight:400;color:var(--ink-dim);"> V</span></div>';
+  html += '</div>';
+  html += '<div class="stat-box"><div><p style="margin:0;font-size:12px;color:var(--ink-dim);">Nemesi (peggior avversario)</p>';
+  html += '<p style="margin:4px 0 0;font-weight:600;">'+(nemeses.length ? esc(nemeses[0].name) : 'Dati insufficienti')+'</p></div>';
+  if(nemeses.length) html += '<div class="val" style="color:var(--danger);">'+Math.round(nemeses[0].wr*100)+'%<span style="font-size:11px;font-weight:400;color:var(--ink-dim);"> tue V</span></div>';
+  html += '</div>';
+  html += '<button class="ghost" style="margin-top:1rem;" onclick="closePlayerProfile()">Chiudi scheda</button>';
+  html += '</div></div>';
+  return html;
+}
+
+function rankingView(){
+  const all = activeKeys().map(k => ({key:k, ...roster[k]})).filter(p => !p.frozen);
+  const diagBtn = '<button class="ghost" style="margin-top:14px;" onclick="showDiag=true;showRanking=false;render();">Diagnostica rating</button>';
+  let html = '<section><p class="section-label">Classifica giocatori</p>';
+  if(activeKeys().some(k => roster[k].frozen)){ html += '<p class="hint">I giocatori con rating ❄ congelato non compaiono in classifica.</p>'; }
+  html += '<div class="seg"><button class="small'+(rankMode==='elo'?' on':'')+'" onclick="setRankMode(\'elo\')">Elo</button>';
+  html += '<button class="small'+(rankMode==='win'?' on':'')+'" onclick="setRankMode(\'win\')">% vittorie</button>';
+  html += '<button class="small'+(rankMode==='glicko'?' on':'')+'" onclick="setRankMode(\'glicko\')">Glicko-2</button></div>';
+  html += '<div class="btn-pair" style="margin-bottom:12px;"><button class="secondary" style="margin-top:0;" onclick="shareRankingWhatsApp()">Condividi classifica</button><button class="secondary" style="margin-top:0;" onclick="shareTrendsWhatsApp()">Condividi trend</button></div>';
+
+  if(rankMode === 'glicko'){
+    html += '<p class="hint">Rating ricalcolato dai tornei archiviati (ogni torneo chiuso è un periodo di valutazione, i tornei di prova sono esclusi). Il ± indica quanto il rating è incerto: scende con le partite e risale se salti delle serate. Ogni partita vale in base al punteggio (conclusa: da 0,81 per il 6-5 a 1 per il 6-0; interrotta o pari: tra 0,5 e 0,75). Parte dal rating iniziale (come l\'Elo); i congelati ❄ restano fissi e non compaiono in classifica. Le frecce mostrano il cambio di posizione dovuto all\'ultimo torneo archiviato.</p>';
+    const rows = computeGlicko().filter(r => !(roster[r.id] && roster[r.id].frozen)).sort((a,b)=> b.rating-a.rating || a.name.localeCompare(b.name));
+    const seenIds = new Set(rows.map(r => r.id));
+    const rest = all.filter(p => !seenIds.has(p.key)).sort((a,b)=> a.name.localeCompare(b.name));
+    if(rows.length === 0){
+      html += '<p class="roster-empty">Nessuna partita archiviata ancora: chiudi un torneo per vedere il Glicko-2.</p>';
+    } else {
+      html += '<div class="rank-list">';
+      const ranks = computeRanks(rows, r => Math.round(r.rating));
+      const mvG = movement(positionsGlicko);
+      rows.forEach((r,i) => {
+        const rk = ranks[i];
+        html += '<div class="rank-row'+(rk.rank===1?' top1':'')+'"><span class="rank-num'+(rk.tied?' tied':'')+'">'+rankLabel(rk)+'</span>';
+        html += '<span class="rank-name clickable" onclick="openPlayerProfile(\''+r.id+'\')">'+esc(r.name)+'</span>';
+        html += arrow(mvG, r.id);
+        html += '<span class="rank-elo">'+Math.round(r.rating)+'</span>';
+        html += '<span class="rank-meta">±'+Math.round(r.rd)+' · '+r.games+'</span></div>';
+      });
+      html += '</div>';
+    }
+    if(rest.length > 0){
+      html += '<p class="hint" style="margin-top:10px;">Senza partite archiviate: '+rest.map(p => esc(p.name)).join(', ')+'.</p>';
+    }
+    html += diagBtn;
+    html += '</section>';
+    return html;
+  }
+
+  if(rankMode === 'win'){
+    html += '<p class="hint">Percentuale di partite vinte (un pareggio vale mezza vittoria). Serve un minimo di '+MIN_MATCHES_WINRATE+' partite per avere una posizione. Non tiene conto della forza degli avversari: per quello c\'è l\'Elo. Le frecce mostrano il cambio di posizione dovuto all\'ultimo torneo archiviato.</p>';
+    const ranked = all.filter(p => p.matches >= MIN_MATCHES_WINRATE)
+      .sort((a,b)=> winRate(b)-winRate(a) || b.matches-a.matches || a.name.localeCompare(b.name));
+    const rest = all.filter(p => p.matches < MIN_MATCHES_WINRATE)
+      .sort((a,b)=> b.matches-a.matches || a.name.localeCompare(b.name));
+    if(all.length === 0){
+      html += '<p class="roster-empty">Nessuno storico ancora.</p>';
+    } else {
+      if(ranked.length === 0){
+        html += '<p class="roster-empty">Nessun giocatore ha ancora '+MIN_MATCHES_WINRATE+' partite.</p>';
+      } else {
+        html += '<div class="rank-list">';
+        const ranks = computeRanks(ranked, p => Math.round(winRate(p)*100));
+        const mvWin = movement(positionsWin);
+        ranked.forEach((p,i) => {
+          const r = ranks[i];
+          html += '<div class="rank-row'+(r.rank===1?' top1':'')+'"><span class="rank-num'+(r.tied?' tied':'')+'">'+rankLabel(r)+'</span>';
+          html += '<span class="rank-name clickable" onclick="openPlayerProfile(\''+p.key+'\')">'+esc(p.name)+'</span>';
+          html += arrow(mvWin, p.key);
+          html += '<span class="rank-elo">'+Math.round(winRate(p)*100)+'%</span>';
+          html += '<span class="rank-meta">'+fmtWins(p.wins)+' / '+p.matches+'</span></div>';
+        });
+        html += '</div>';
+      }
+      if(rest.length > 0){
+        html += '<p class="section-label" style="margin-top:14px;">Meno di '+MIN_MATCHES_WINRATE+' partite</p>';
+        html += '<div class="rank-list">';
+        rest.forEach(p => {
+          const wr = winRate(p);
+          html += '<div class="rank-row"><span class="rank-num"></span><span class="rank-name" style="color:var(--ink-dim);">'+esc(p.name)+'</span>';
+          html += '<span class="rank-meta">'+(wr===null ? '—' : fmtWins(p.wins)+' / '+p.matches)+'</span></div>';
+        });
+        html += '</div>';
+      }
+    }
+    html += diagBtn;
+    html += '</section>';
+    return html;
+  }
+
+  html += '<p class="hint">Punteggio Elo: sale o scende in base alla forza degli avversari affrontati, non solo al risultato. Si ricalcola dai tornei archiviati, partendo dal rating iniziale (di base 1000). I congelati ❄ restano fissi e non compaiono in classifica. Le frecce mostrano il cambio di posizione dovuto all\'ultimo torneo archiviato.</p>';
+  // Come nelle altre classifiche, chi non ha ancora partite archiviate non compare in graduatoria.
+  const list = all.filter(p => p.matches > 0).sort((a,b)=> (b.elo||START_ELO) - (a.elo||START_ELO) || a.name.localeCompare(b.name));
+  const idle = all.filter(p => !(p.matches > 0)).sort((a,b)=> a.name.localeCompare(b.name));
+  if(list.length === 0){
+    html += '<p class="roster-empty">Nessuno storico ancora.</p>';
+  } else {
+    html += '<div class="rank-list">';
+    const ranks = computeRanks(list, p => Math.round(p.elo||START_ELO));
+    const mvElo = movement(positionsElo);
+    list.forEach((p,i) => {
+      const wr = winRate(p);
+      const r = ranks[i];
+      html += '<div class="rank-row'+(r.rank===1?' top1':'')+'"><span class="rank-num'+(r.tied?' tied':'')+'">'+rankLabel(r)+'</span>';
+      html += '<span class="rank-name clickable" onclick="openPlayerProfile(\''+p.key+'\')">'+esc(p.name)+'</span>';
+      html += arrow(mvElo, p.key);
+      html += '<span class="rank-elo">'+Math.round(p.elo||START_ELO)+'</span>';
+      html += '<span class="rank-meta">'+(wr===null?'—':Math.round(wr*100)+'% · '+p.matches)+'</span></div>';
+    });
+    html += '</div>';
+  }
+  if(idle.length > 0){
+    html += '<p class="hint" style="margin-top:10px;">Senza partite archiviate: '+idle.map(p => esc(p.name)).join(', ')+'.</p>';
+  }
+  html += diagBtn;
+  html += '</section>';
+  return html;
+}
+
+function render(){
+  renderMain();
+  syncKiosk();
+}
+function renderMain(){
+  const app = document.getElementById('app');
+  if(viewingPlayerId){
+    document.getElementById('title').textContent = 'Profilo';
+    document.getElementById('subtitle').textContent = 'Statistiche dal tuo archivio locale.';
+    app.innerHTML = playerProfileView(viewingPlayerId);
+    return;
+  }
+  document.getElementById('title').textContent = showDiag ? 'Diagnostica rating' : showRanking ? 'Classifica giocatori' : (showTeamRanking ? 'Classifica squadre' : (showArchive ? 'Tornei passati' : (t.phase==='setup' ? 'Nuovo torneo' : 'Torneo in corso')));
+  document.getElementById('foot').textContent = (!showRanking && !showTeamRanking && !showArchive && t.phase==='playing') ? ((t.mode && t.mode!=='fixed' ? t.players.length+' giocatori · '+({americano:'Americano',messicano:'Messicano'}[t.mode]) : t.teams.length+' squadre')+' · '+t.courts+' campi · '+t.maxRounds+' turni') : '';
+
+  let html = '<div class="btn-pair" style="margin-bottom:1.25rem;">';
+  html += '<button class="ghost" onclick="showDiag=false;showRanking=!showRanking;showTeamRanking=false;showArchive=false;render();">'+(showRanking ? 'Torna al torneo' : 'Classifica giocatori')+'</button>';
+  html += '<button class="ghost" onclick="showDiag=false;showTeamRanking=!showTeamRanking;showRanking=false;showArchive=false;render();">'+(showTeamRanking ? 'Torna al torneo' : 'Classifica squadre')+'</button>';
+  html += '<button class="ghost" onclick="showDiag=false;showArchive=!showArchive;showRanking=false;showTeamRanking=false;render();">'+(showArchive ? 'Torna al torneo' : 'Tornei passati')+'</button>';
+  html += '</div>';
+
+  if(showDiag){
+    html += diagView();
+    app.innerHTML = html;
+    return;
+  }
+  if(showRanking){
+    html += rankingView();
+    app.innerHTML = html;
+    return;
+  }
+  if(showTeamRanking){
+    html += teamRankingView();
+    app.innerHTML = html;
+    return;
+  }
+  if(showArchive){
+    html += archiveView();
+    app.innerHTML = html;
+    return;
+  }
+
+  if(t.phase === 'setup'){
+    html += ratingSummaryView();
+    html += backupBanner();
+    html += rosterPanel();
+
+    html += '<section><p class="section-label">Tipo di torneo</p><div class="seg">';
+    html += '<button class="small'+(pendingMode==='fixed'?' on':'')+'" onclick="setPendingMode(\'fixed\')">Squadre fisse</button>';
+    html += '<button class="small'+(pendingMode==='americano'?' on':'')+'" onclick="setPendingMode(\'americano\')">Americano</button>';
+    html += '<button class="small'+(pendingMode==='messicano'?' on':'')+'" onclick="setPendingMode(\'messicano\')">Messicano</button>';
+    html += '</div>';
+    if(pendingMode === 'fixed'){
+      html += '<p class="hint">Le coppie restano le stesse per tutta la serata.</p></section>';
+    } else if(pendingMode === 'americano'){
+      html += '<p class="hint">I compagni cambiano ogni turno, mescolati per giocare il più possibile con tutti evitando ripetizioni. Punteggio individuale: ogni giocatore somma i game fatti dalla sua coppia.</p></section>';
+    } else {
+      html += '<p class="hint">I compagni cambiano ogni turno in base alla classifica del momento (chi è in testa gioca con chi è più indietro nel suo gruppo). Punteggio individuale come nell\'Americano.</p></section>';
+    }
+
+    if(pendingMode === 'fixed'){
+      html += '<section><div class="seg"><button class="small'+(suggestBy==='elo'?' on':'')+'" onclick="setSuggestBy(\'elo\')">Abbina per Elo</button>';
+      html += '<button class="small'+(suggestBy==='glicko'?' on':'')+'" onclick="setSuggestBy(\'glicko\')">Abbina per Glicko-2</button></div>';
+      html += '<label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13.5px;"><input type="checkbox" '+(varyPairs?'checked':'')+' onchange="setVaryPairs(this.checked)" style="width:18px;height:18px;accent-color:var(--ball);flex-shrink:0;" /> Un po\' di casualità (giocatori di forza simile si scambiano)</label>';
+      html += '<label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13.5px;"><input type="checkbox" '+(ignoreSides?'checked':'')+' onchange="setIgnoreSides(this.checked)" style="width:18px;height:18px;accent-color:var(--ball);flex-shrink:0;" /> Ignora Sx/Dx dichiarati</label>';
+      html += '<button class="secondary" onclick="suggestPairings()">Suggerisci abbinamenti</button>';
+      html += '<button class="ghost" onclick="addEmptyTeam()">Oppure crea una squadra a mano</button>';
+      if(draftTeams.length === 0){ html += '<p class="err" id="setupErr"></p>'; }
+      html += '</section>';
+    } else {
+      html += '<section><p class="section-label">Serata</p><div class="row2">';
+      html += '<div><label class="field">Campi disponibili</label><input type="number" id="courtsInput" min="1" value="'+(t.courts||3)+'" oninput="updateCourts(this.value)" /></div>';
+      html += '<div><label class="field">Turni da giocare</label><input type="number" id="roundsInput" min="1" value="'+(t.maxRounds||3)+'" oninput="updateRounds(this.value)" /></div>';
+      html += '</div>';
+      html += '<label style="display:flex;align-items:center;gap:8px;margin-top:14px;font-size:13.5px;"><input type="checkbox" '+(t.unofficial?'checked':'')+' onchange="t.unofficial=this.checked;saveTournament();" style="width:18px;height:18px;accent-color:var(--ball);flex-shrink:0;" /> Torneo di prova (i risultati non contano per Elo, classifiche e storico)</label>';
+      html += '<button class="primary" onclick="startRotatingTournament()" style="margin-top:14px;">Inizia torneo</button>';
+      html += '<p class="err" id="setupErr"></p></section>';
+    }
+
+    if(pendingMode === 'fixed' && draftTeams.length > 0){
+      const options = Array.from(selected).map(k => roster[k] ? roster[k].name : k).sort((a,b)=> a.localeCompare(b));
+      const gmDraft = strengthMap();
+      const tStr = {};
+      draftTeams.forEach(dt => { tStr[dt.id] = draftTeamStrength(dt, gmDraft); });
+      const sVals = Object.values(tStr).filter(v => v !== null);
+      const sMin = sVals.length ? Math.min(...sVals) : 0, sMax = sVals.length ? Math.max(...sVals) : 0;
+      const sMean = sVals.length ? sVals.reduce((a,b)=>a+b,0)/sVals.length : 0;
+      const methodLabel = suggestBy === 'glicko' ? 'Glicko-2' : 'Elo';
+      const allStr = [];
+      draftTeams.forEach(dt => [dt.p1, dt.p2].filter(x => x && x.trim()).forEach(nm => allStr.push(strengthOfName(nm, gmDraft))));
+      const allMean = allStr.length ? allStr.reduce((a,b)=>a+b,0)/allStr.length : 0;
+      const sdAllDraft = allStr.length ? Math.sqrt(allStr.reduce((a,b)=>a+(b-allMean)*(b-allMean),0)/allStr.length) : 0;
+      html += '<section><p class="section-label">Squadre</p>';
+      if(sVals.length >= 2){
+        html += '<p class="hint"><b>Forza media delle squadre ('+methodLabel+'):</b> da '+Math.round(sMin)+' a '+Math.round(sMax)+' &middot; differenza tra la più forte e la più debole: '+Math.round(sMax-sMin)+' punti.</p>';
+      }
+      if(suggestNote){ html += '<p class="hint"><b>'+esc(suggestNote)+'</b></p>'; }
+      html += '<p class="hint">Scegli un nome già assegnato altrove per scambiarlo con quello attuale.</p>';
+      draftTeams.forEach(dt => {
+        html += '<div class="team-card"><div class="team-card-head"><p class="section-label">Squadra '+(dt.id+1)+'</p><button class="small" onclick="removeTeam('+dt.id+')">Rimuovi</button></div>';
+        html += '<div class="team-players">';
+        ['p1','p2'].forEach((field,fi) => {
+          html += '<div><p class="hint" style="margin:0 0 3px;font-size:11px;">'+(fi===0?'Sx':'Dx')+'</p>';
+          html += '<select onchange="assignSlot('+dt.id+',\''+field+'\',this.value)">';
+          html += '<option value=""'+(!dt[field]?' selected':'')+'>—</option>';
+          options.forEach(name => {
+            const owner = draftTeams.find(o => o.id!==dt.id && (o.p1===name || o.p2===name));
+            const label = (owner ? name+' (Squadra '+(owner.id+1)+')' : name)+' · '+Math.round(strengthOfName(name, gmDraft));
+            html += '<option value="'+name+'"'+(dt[field]===name?' selected':'')+'>'+label+'</option>';
+          });
+          html += '</select></div>';
+        });
+        html += '</div>';
+        const st = tStr[dt.id];
+        if(st !== null){
+          const incomplete = !(dt.p1 && dt.p1.trim() && dt.p2 && dt.p2.trim());
+          const delta = st - sMean;
+          const pct = sMax > sMin ? 12 + 88*(st - sMin)/(sMax - sMin) : 60;
+          const off = sVals.length>=2 && Math.abs(delta) > 0.6*sdAllDraft;   // squadra nettamente più forte/debole delle altre
+          html += '<div class="strength-row"><span>Forza <b>'+Math.round(st)+'</b></span><span'+(off?' style="color:var(--danger);font-weight:600;"':'')+'>'+(sVals.length>=2 ? (delta>=0?'+':'')+Math.round(delta)+' sulla media'+(off?' ⚠':'') : '')+(incomplete?' &middot; incompleta':'')+'</span><div class="strength-bar"><i style="width:'+pct.toFixed(0)+'%"></i></div></div>';
+        }
+        html += '</div>';
+      });
+      html += '<button class="ghost" onclick="addEmptyTeam()">Aggiungi un\'altra squadra</button>';
+      html += '</section>';
+
+      html += '<section><p class="section-label">Serata</p><div class="row2">';
+      html += '<div><label class="field">Campi disponibili</label><input type="number" id="courtsInput" min="1" value="'+(t.courts||3)+'" oninput="updateCourts(this.value)" /></div>';
+      html += '<div><label class="field">Turni da giocare</label><input type="number" id="roundsInput" min="1" value="'+(t.maxRounds||3)+'" oninput="updateRounds(this.value)" /></div>';
+      html += '</div>';
+      html += '<label style="display:flex;align-items:center;gap:8px;margin-top:14px;font-size:13.5px;"><input type="checkbox" '+(t.unofficial?'checked':'')+' onchange="t.unofficial=this.checked;saveTournament();" style="width:18px;height:18px;accent-color:var(--ball);flex-shrink:0;" /> Torneo di prova (i risultati non contano per Elo, classifiche e storico)</label>';
+      html += '<button class="primary" onclick="startTournament()" style="margin-top:14px;">Inizia torneo</button>';
+      html += '<p class="err" id="setupErr"></p></section>';
+    }
+
+    html += dataSection();
+
+  } else if(t.phase === 'playing'){
+    const rotating = !!(t.mode && t.mode !== 'fixed');
+    if(t.unofficial){ html += '<div class="banner">Torneo di prova: i risultati non vengono salvati in Elo, classifiche o storico.</div>'; }
+    if(t.currentMatches.length > 0){
+      html += '<section><p class="section-label">Turno '+t.round+' di '+t.maxRounds+'</p>';
+      if(pairEdit){
+        const gmRound = strengthMap(), methodLabel = suggestBy === 'glicko' ? 'Glicko-2' : 'Elo';
+        if(pairEdit.type === 'fixed'){
+          const teams = pairEditTeams();
+          const courtStrengths = pairEdit.courts.map(c => {
+            const tA = t.teams.find(x=>x.id===c.a), tB = t.teams.find(x=>x.id===c.b);
+            const av = tA ? teamStrengthNames(tA.players, gmRound) : null;
+            const bv = tB ? teamStrengthNames(tB.players, gmRound) : null;
+            if(av === null || bv === null) return null;
+            return { a: av, b: bv };
+          });
+          html += methodToggleHtml();
+          html += courtsSummaryHtml(courtStrengths, methodLabel);
+          html += '<p class="hint">Scegli una squadra già assegnata altrove per scambiarla. Se scegli una squadra a riposo, quella sostituita passa a riposo. Cambiando gli abbinamenti il calendario si adatta ai turni successivi.</p>';
+          pairEdit.courts.forEach((c, court) => {
+            html += '<div class="match-card"><p class="match-court">Campo '+(court+1)+'</p>';
+            html += '<div class="team-players">'+fixedTeamSelect(court,'a',teams)+fixedTeamSelect(court,'b',teams)+'</div>';
+            html += strengthRowHtml(courtStrengths, court);
+            html += '</div>';
+          });
+        } else {
+          const players = pairEditPlayers();
+          const courtStrengths = pairEdit.courts.map(c => {
+            const av = teamStrengthIds(c.pa, gmRound), bv = teamStrengthIds(c.pb, gmRound);
+            if(av === null || bv === null) return null;
+            return { a: av, b: bv };
+          });
+          html += methodToggleHtml();
+          html += courtsSummaryHtml(courtStrengths, methodLabel);
+          pairEdit.courts.forEach((c, court) => {
+            html += '<div class="match-card"><p class="match-court">Campo '+(court+1)+'</p>';
+            html += '<div class="team-players">'+pairEditSelect(court,'pa',0,players)+pairEditSelect(court,'pa',1,players)+'</div>';
+            html += '<p style="text-align:center;opacity:.7;margin:6px 0;">vs</p>';
+            html += '<div class="team-players">'+pairEditSelect(court,'pb',0,players)+pairEditSelect(court,'pb',1,players)+'</div>';
+            html += strengthRowHtml(courtStrengths, court);
+            html += '</div>';
+          });
+        }
+        html += '<p class="err" id="pairEditErr"></p>';
+        html += '<div class="btn-pair"><button class="ghost" onclick="cancelPairEdit()">Annulla</button><button class="primary" onclick="applyPairEdit()">Applica abbinamenti</button></div></section>';
+      } else {
+      html += '<button class="ghost" style="margin-bottom:10px;" onclick="openPairEdit()">Cambia abbinamenti</button>';
+      html += '<div class="btn-pair" style="margin-bottom:10px;"><button class="secondary" style="margin-top:0;" onclick="shareRoundWhatsApp()">Condividi turno</button><button class="secondary" style="margin-top:0;" onclick="openKiosk()">Tabellone live</button></div>';
+      if(t.history && t.history.length){ html += '<button class="ghost" style="margin-bottom:10px;" onclick="shareLiveResults()">Condividi risultati finora</button>'; }
+      const gmRound2 = strengthMap(), methodLabel2 = suggestBy === 'glicko' ? 'Glicko-2' : 'Elo';
+      const courtStrengths = t.currentMatches.map(m => {
+        if(rotating){
+          const av = teamStrengthIds(m.pa, gmRound2), bv = teamStrengthIds(m.pb, gmRound2);
+          if(av === null || bv === null) return null;
+          return { a: av, b: bv };
+        }
+        const teamA = t.teams.find(x=>x.id===m[0]), teamB = t.teams.find(x=>x.id===m[1]);
+        if(!teamA || !teamB) return null;
+        const av = teamStrengthNames(teamA.players, gmRound2), bv = teamStrengthNames(teamB.players, gmRound2);
+        if(av === null || bv === null) return null;
+        return { a: av, b: bv };
+      });
+      html += methodToggleHtml();
+      html += courtsSummaryHtml(courtStrengths, methodLabel2);
+      t.currentMatches.forEach((m,idx) => {
+        const nameA = rotating ? m.aName : t.teams.find(x=>x.id===m[0]).name;
+        const nameB = rotating ? m.bName : t.teams.find(x=>x.id===m[1]).name;
+        const rd = roundDraft[idx] || {};
+        const tbOpen = (rd.s1==='6' && rd.s2==='6');
+        html += '<div class="match-card"><p class="match-court">Campo '+(idx+1)+'</p><div class="match-row">';
+        html += '<span class="team-name">'+nameA+'</span>';
+        html += '<input class="score-input" id="s1_'+idx+'" type="number" min="0" inputmode="numeric" value="'+esc(rd.s1||'')+'" oninput="setRoundScore('+idx+',\'s1\',this.value); toggleTbRow(\'s1_'+idx+'\',\'s2_'+idx+'\',\'tbrow_'+idx+'\')" />';
+        html += '<span class="dash">&ndash;</span>';
+        html += '<input class="score-input" id="s2_'+idx+'" type="number" min="0" inputmode="numeric" value="'+esc(rd.s2||'')+'" oninput="setRoundScore('+idx+',\'s2\',this.value); toggleTbRow(\'s1_'+idx+'\',\'s2_'+idx+'\',\'tbrow_'+idx+'\')" />';
+        html += '<span class="team-name right">'+nameB+'</span></div>';
+        html += '<div class="tb-row" id="tbrow_'+idx+'" style="'+(tbOpen?'':'display:none;')+'"><span class="tb-label">Tie-break</span><input class="score-input tb-input" id="tb1_'+idx+'" type="number" min="0" inputmode="numeric" value="'+esc(rd.tb1||'')+'" oninput="setRoundScore('+idx+',\'tb1\',this.value)" /><span class="dash">&ndash;</span><input class="score-input tb-input" id="tb2_'+idx+'" type="number" min="0" inputmode="numeric" value="'+esc(rd.tb2||'')+'" oninput="setRoundScore('+idx+',\'tb2\',this.value)" /></div>';
+        html += strengthRowHtml(courtStrengths, idx);
+        html += '</div>';
+      });
+      if(t.restingThisRound && t.restingThisRound.length > 0){
+        const names = rotating ? t.restingThisRound.map(playerName).join(', ') : t.restingThisRound.map(id => t.teams.find(x=>x.id===id).name).join(', ');
+        html += '<p class="resting">Riposa: '+names+'</p>';
+      }
+      html += '<p class="err" id="err"></p>';
+      html += '<button class="primary" onclick="submitResults()">Salva risultati</button></section>';
+      }
+    } else if(t.round < t.maxRounds){
+      html += '<section><button class="primary" onclick="generateRound()">Genera turno '+(t.round+1)+' di '+t.maxRounds+'</button>';
+      if(t.round > 0){ html += '<button class="ghost" onclick="undoLastRound()">Torna al turno precedente</button>'; }
+      if(t.round > 0 || (t.extras && t.extras.length > 0)){ html += '<button class="ghost" onclick="finishTournament()">Termina torneo</button>'; }
+      html += '</section>';
+    } else {
+      html += '<section><div class="banner">Turni previsti completati.</div>';
+      html += '<button class="primary" onclick="finishTournament()">Termina torneo</button>';
+      html += '<button class="ghost" onclick="generateRound()">Gioca un turno extra</button>';
+      html += '<button class="ghost" onclick="undoLastRound()">Torna al turno precedente</button></section>';
+    }
+
+    if(t.round > 0 && rotating){
+      const st = liveIndividualStats();
+      const rows = t.players.map(id => ({ id, name: playerName(id), ...st[id] })).sort((a,b)=> b.wins-a.wins || (b.gW-b.gL)-(a.gW-a.gL) || b.gW-a.gW);
+      const ranks = computeRanks(rows, r => r.wins+'-'+(r.gW-r.gL));
+      html += '<section><p class="section-label">Classifica</p><table><tr><th>Giocatore</th><th class="num">V</th><th class="num">Game</th></tr>';
+      rows.forEach((r,i) => {
+        const rk = ranks[i];
+        html += '<tr class="pos-'+rk.rank+'"><td><span class="rank'+(rk.tied?' tied':'')+'">'+rankLabel(rk)+'</span>'+esc(r.name)+'</td><td class="num">'+r.wins+'</td><td class="num">'+r.gW+'-'+r.gL+'</td></tr>';
+      });
+      html += '</table></section>';
+    } else if(t.round > 0){
+      const sorted = [...t.teams].sort(standingsSort);
+      const ranks = computeRanks(sorted, tm => tm.wins+'-'+(tm.setsWon-tm.setsLost));
+      html += '<section><p class="section-label">Classifica</p><table><tr><th>Squadra</th><th class="num">V</th><th class="num">Set</th></tr>';
+      sorted.forEach((tm,i) => {
+        const r = ranks[i];
+        html += '<tr class="pos-'+r.rank+'"><td><span class="rank'+(r.tied?' tied':'')+'">'+rankLabel(r)+'</span>'+tm.name+'</td><td class="num">'+tm.wins+'</td><td class="num">'+tm.setsWon+'-'+tm.setsLost+'</td></tr>';
+      });
+      html += '</table></section>';
+    }
+
+    html += extrasSection();
+
+    if(t.history.length > 0){
+      html += '<section>';
+      [...t.history].reverse().forEach(h => {
+        html += '<div class="history-round"><p class="section-label">Turno '+h.round+'</p>';
+        h.matches.forEach(m => { html += '<div class="history-match"><span><b>'+m.a+'</b> vs <b>'+m.b+'</b></span><span>'+m.s1+' &ndash; '+m.s2+(m.tb?' <span class="tb-inline">(tb '+m.tb[0]+'-'+m.tb[1]+')</span>':'')+'</span></div>'; });
+        html += '</div>';
+      });
+      html += '</section>';
+    }
+
+    html += dataSection();
+
+    if(resetArmed){
+      html += '<div class="banner warn"><p style="margin:0 0 10px;">Ricominciare da zero? Il torneo in corso verrà perso e i rating non cambiano.</p>';
+      html += '<div style="display:flex;gap:8px;"><button class="primary" style="background:var(--danger);color:#fff;" onclick="resetAll()">Sì, ricomincia</button>';
+      html += '<button class="ghost" style="margin-top:0;" onclick="cancelReset()">Annulla</button></div></div>';
+    } else {
+      html += '<button class="ghost" onclick="resetAll()">Annulla torneo</button>';
+    }
+  }
+
+  app.innerHTML = html;
+}
+
+// Id nascosti, pesi delle extra e rating derivati dall'archivio.
+function initData(){
+  ensureArchiveIds();
+  const beforeElo = {};
+  Object.keys(roster).forEach(id => { beforeElo[id] = roster[id].elo; });
+  recomputeRatings();
+  if(ratingMigration){
+    const changed = Object.keys(roster).filter(id => !roster[id].hidden && Math.abs((beforeElo[id]===undefined ? START_ELO : beforeElo[id]) - roster[id].elo) > 0.05).length;
+    saveRoster(); saveArchive();
+    ratingMigration = false;
+    if(changed > 0) dataMsg = 'I rating ora si ricalcolano dai tornei archiviati (partenza da 1000): per '+changed+' giocatori il valore è cambiato rispetto a prima.';
+  }
+}
+initData();
+render();
+</script>
+<script>
+// PWA: funzionamento offline e app installabile (richiede HTTPS; non attivo aprendo il file in locale)
+if('serviceWorker' in navigator && location.protocol.indexOf('http') === 0){
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('./sw.js').catch(function(err){ console.log('Service worker non registrato:', err); });
+  });
+}
+</script>
+</body>
+</html>
