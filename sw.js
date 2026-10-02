@@ -3,7 +3,7 @@
 //   con ripiego sulla copia salvata se la rete manca o risponde troppo piano (3 s).
 // - tutto il resto (JSZip, font, icone): dalla copia salvata, aggiornata in sottofondo.
 // I dati dei tornei NON sono qui: stanno nel localStorage del telefono e questo file non li tocca.
-const CACHE_NAME = 'padel-v29';
+const CACHE_NAME = 'padel-v30';
 const PRECACHE = ['./', './index.html', './manifest.json', './jszip.min.js', './icon-192.png', './icon-512.png', './icon-maskable-512.png', './apple-touch-icon.png'];
 const NETWORK_TIMEOUT_MS = 3000;
 

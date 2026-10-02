@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v29">
+<meta name="app-version" content="v30">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -69,9 +69,9 @@
   .team-card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
   .team-card-head .section-label{margin:0;}
   .team-players{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
-  .strength-row{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:12.5px;color:var(--ink-dim);}
+  .strength-row{display:grid;grid-template-columns:1fr auto;align-items:center;column-gap:12px;row-gap:8px;margin-top:12px;padding-top:10px;border-top:1px dashed var(--card-border);font-size:12.5px;color:var(--ink-dim);}
   .strength-row b{color:var(--ink);font-family:var(--font-head);font-weight:600;}
-  .strength-bar{flex:1;height:6px;border-radius:3px;background:var(--card-border);overflow:hidden;}
+  .strength-bar{grid-column:1 / -1;height:6px;border-radius:3px;background:var(--card-border);overflow:hidden;}
   .strength-bar i{display:block;height:100%;background:var(--ball);border-radius:3px;}
 
   .add-row{display:flex;gap:8px;margin-bottom:10px;}
@@ -111,6 +111,9 @@
   .team-name{flex:1;font-size:14.5px;font-weight:500;}
   .team-name.right{text-align:right;}
   .score-input{width:44px;text-align:center;padding:10px 4px;font-family:var(--font-head);font-weight:600;}
+  input[type=number].score-input{width:56px;flex:none;}
+  input[type=number].tb-input{width:46px;flex:none;}
+  .team-name{line-height:1.3;}
   .edit-match{padding:10px 0;border-top:1px solid var(--card-border);}
   .edit-match-name{font-size:13px;color:var(--ink-dim);line-height:1.45;margin-bottom:8px;}
   .edit-match-name b{color:var(--ink);font-weight:500;}
@@ -183,8 +186,10 @@
   .upset{color:var(--ball-dark);font-size:12px;font-weight:600;white-space:nowrap;}
   .prov{font-size:10.5px;font-weight:600;color:var(--ink-dim);border:1px solid var(--ink-dim);border-radius:6px;padding:0 4px;margin-left:6px;vertical-align:middle;opacity:.85;}
   button.back-active{background:var(--ball);color:#0B3D3A;border-color:var(--ball);font-weight:700;}
-  .swap-row{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:12.5px;color:var(--ink-dim);}
-  .swap-row label{display:flex;align-items:center;gap:6px;}
+  .swap-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;font-size:12.5px;color:var(--ink-dim);}
+  .swap-row label{display:flex;align-items:center;gap:8px;min-height:32px;cursor:pointer;}
+  .swap-row label.right{flex-direction:row-reverse;}
+  .swap-row input[type=checkbox]{width:20px;height:20px;margin:0;flex:none;accent-color:var(--ball);}
   .prob-line{display:block;font-size:12px;color:var(--ink-dim);font-weight:400;margin-top:2px;}
   /* App installata (PWA): rispetta tacca e barra di sistema */
   body{padding-top:env(safe-area-inset-top,0px);padding-bottom:calc(3rem + env(safe-area-inset-bottom,0px));}
@@ -1112,6 +1117,8 @@ function toggleTbRow(idA, idB, rowId){
 }
 // Salva nella bozza il punteggio digitato per un campo del turno in corso, così un render
 // (es. aggiungendo o togliendo una partita extra) non lo perde più.
+// Nome squadra su due righe ordinate: "Presidente &" / "Alessandra".
+function teamLabelHtml(name){ return esc(name).replace(' &amp; ', ' &amp;<br>'); }
 function setRoundSwap(idx, which, checked){
   if(!roundDraft[idx]) roundDraft[idx] = {};
   roundDraft[idx]['sw'+which] = !!checked;
@@ -3599,16 +3606,16 @@ function renderMain(){
         const rd = roundDraft[idx] || {};
         const tbOpen = (rd.s1==='6' && rd.s2==='6');
         html += '<div class="match-card"><p class="match-court">Campo '+(idx+1)+'</p><div class="match-row">';
-        html += '<span class="team-name">'+nameA+'</span>';
+        html += '<span class="team-name">'+teamLabelHtml(nameA)+'</span>';
         html += '<input class="score-input" id="s1_'+idx+'" type="number" min="0" inputmode="numeric" value="'+esc(rd.s1||'')+'" oninput="setRoundScore('+idx+',\'s1\',this.value); toggleTbRow(\'s1_'+idx+'\',\'s2_'+idx+'\',\'tbrow_'+idx+'\')" />';
         html += '<span class="dash">&ndash;</span>';
         html += '<input class="score-input" id="s2_'+idx+'" type="number" min="0" inputmode="numeric" value="'+esc(rd.s2||'')+'" oninput="setRoundScore('+idx+',\'s2\',this.value); toggleTbRow(\'s1_'+idx+'\',\'s2_'+idx+'\',\'tbrow_'+idx+'\')" />';
-        html += '<span class="team-name right">'+nameB+'</span></div>';
+        html += '<span class="team-name right">'+teamLabelHtml(nameB)+'</span></div>';
         html += '<div class="tb-row" id="tbrow_'+idx+'" style="'+(tbOpen?'':'display:none;')+'"><span class="tb-label">Tie-break</span><input class="score-input tb-input" id="tb1_'+idx+'" type="number" min="0" inputmode="numeric" value="'+esc(rd.tb1||'')+'" oninput="setRoundScore('+idx+',\'tb1\',this.value)" /><span class="dash">&ndash;</span><input class="score-input tb-input" id="tb2_'+idx+'" type="number" min="0" inputmode="numeric" value="'+esc(rd.tb2||'')+'" oninput="setRoundScore('+idx+',\'tb2\',this.value)" /></div>';
         if(!rotating){
-          html += '<div class="swap-row"><span>Lati invertiti (Sx/Dx):</span>'
-            + '<label><input type="checkbox" style="width:18px;height:18px;accent-color:var(--ball);flex-shrink:0;" '+(rd.swA?'checked':'')+' onchange="setRoundSwap('+idx+',\'A\',this.checked)" /> '+esc(nameA)+'</label>'
-            + '<label><input type="checkbox" style="width:18px;height:18px;accent-color:var(--ball);flex-shrink:0;" '+(rd.swB?'checked':'')+' onchange="setRoundSwap('+idx+',\'B\',this.checked)" /> '+esc(nameB)+'</label></div>';
+          html += '<div class="swap-row">'
+            + '<label title="Spunta se in questa partita la squadra ha giocato coi lati Sx/Dx scambiati"><input type="checkbox" '+(rd.swA?'checked':'')+' onchange="setRoundSwap('+idx+',\'A\',this.checked)" /><span>Lati invertiti</span></label>'
+            + '<label class="right" title="Spunta se in questa partita la squadra ha giocato coi lati Sx/Dx scambiati"><input type="checkbox" '+(rd.swB?'checked':'')+' onchange="setRoundSwap('+idx+',\'B\',this.checked)" /><span>Lati invertiti</span></label></div>';
         }
         html += strengthRowHtml(courtStrengths, idx);
         html += '</div>';
