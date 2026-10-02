@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v32">
+<meta name="app-version" content="v29">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -152,8 +152,8 @@
   .history-match b{color:var(--ink);font-weight:500;}
 
   .data-row{display:flex;gap:8px;}
-  .data-row + .data-row{margin-top:10px;}
   .data-row button, .data-row label{flex:1;margin-top:0;}
+  .data-sep{margin-top:22px;padding-top:16px;border-top:1px solid rgba(128,128,128,.35);}
   input[type=file]{display:none;}
 
   footer{text-align:center;color:var(--ink-dim);font-size:12px;margin-top:2rem;}
@@ -179,6 +179,13 @@
 
   #updateBar{display:none;position:sticky;top:0;z-index:60;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;padding:calc(8px + env(safe-area-inset-top,0px)) 12px 8px;background:var(--ball);color:#0B3D3A;font-family:var(--font-head);font-weight:600;font-size:14px;}
   #updateBar button{background:#0B3D3A;color:var(--ball);border:0;}
+  #toast{display:none;position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--court);padding:10px 18px;border-radius:999px;font-family:var(--font-head);font-weight:600;font-size:14px;z-index:300;max-width:90%;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,.35);}
+  .upset{color:var(--ball-dark);font-size:12px;font-weight:600;white-space:nowrap;}
+  .prov{font-size:10.5px;font-weight:600;color:var(--ink-dim);border:1px solid var(--ink-dim);border-radius:6px;padding:0 4px;margin-left:6px;vertical-align:middle;opacity:.85;}
+  button.back-active{background:var(--ball);color:#0B3D3A;border-color:var(--ball);font-weight:700;}
+  .swap-row{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-top:8px;font-size:12.5px;color:var(--ink-dim);}
+  .swap-row label{display:flex;align-items:center;gap:6px;}
+  .prob-line{display:block;font-size:12px;color:var(--ink-dim);font-weight:400;margin-top:2px;}
   /* App installata (PWA): rispetta tacca e barra di sistema */
   body{padding-top:env(safe-area-inset-top,0px);padding-bottom:calc(3rem + env(safe-area-inset-bottom,0px));}
   #kioskOverlay{padding-top:calc(1.5rem + env(safe-area-inset-top,0px));padding-bottom:calc(1.5rem + env(safe-area-inset-bottom,0px));}
@@ -186,6 +193,7 @@
 </head>
 <body>
 <div id="updateBar" role="status"></div>
+<div id="toast" role="status"></div>
 <div class="wrap">
   <header>
     <p class="kicker">Serata di padel</p>
@@ -218,6 +226,10 @@ const K_NEW_UNTIL = 10, K_MID_UNTIL = 30;   // partite giocate
 const EXTRA_K_FACTOR = 0.5;
 // Classifica a percentuale di vittorie: sotto questa soglia di partite un giocatore non ha posizione.
 const MIN_MATCHES_WINRATE = 5;
+// Giocatore "provvisorio": ancora nella fase di K alto (poche partite), la posizione può cambiare molto.
+const PROVISIONAL_MATCHES = K_NEW_UNTIL;
+function isProvisional(id){ const p = roster[id]; return !!p && (p.matches || 0) < PROVISIONAL_MATCHES; }
+function provTag(id){ return isProvisional(id) ? '<span class="prov" title="Meno di '+PROVISIONAL_MATCHES+' partite: il rating può cambiare molto">prov.</span>' : ''; }
 const LS_RANK_MODE = 'padel-rankmode-v1';
 let rankMode = (function(){ try{ const m = localStorage.getItem(LS_RANK_MODE); return (m==='win' || m==='glicko') ? m : 'elo'; }catch(e){ return 'elo'; } })();
 function setRankMode(m){ rankMode = m; try{ localStorage.setItem(LS_RANK_MODE, m); }catch(e){} render(); }
@@ -437,7 +449,7 @@ function ensureArchiveIds(){
 function archiveGames(a){
   const out = [];
   (a.history || []).forEach(h => h.matches.forEach(m => {
-    out.push({ idsA: m.pa || teamIdsFor(a, m.aId, m.a), idsB: m.pb || teamIdsFor(a, m.bId, m.b), s1:m.s1, s2:m.s2, tb:m.tb, weight:1 });
+    out.push({ idsA: m.pa || teamIdsFor(a, m.aId, m.a), idsB: m.pb || teamIdsFor(a, m.bId, m.b), s1:m.s1, s2:m.s2, tb:m.tb, weight:1, sides:m.sides });
   }));
   (a.extras || []).forEach(x => {
     const w = x.weight !== undefined ? x.weight : (x.rating==='full' ? 1 : (x.rating==='reduced' ? EXTRA_K_FACTOR : 0));
@@ -651,7 +663,7 @@ function strengthRowHtml(courtStrengths, idx){
   const off = diffs.length >= 2 && ad > meanD + 0.6*sdD && ad >= 25;
   const mx = diffs.length ? Math.max(...diffs) : ad, mn = diffs.length ? Math.min(...diffs) : 0;
   const pct = mx > mn ? 12 + 88*(ad - mn)/(mx - mn) : 50;
-  return '<div class="strength-row"><span>Forza <b>'+Math.round(st.a)+'</b> &ndash; <b>'+Math.round(st.b)+'</b></span><span'+(off?' style="color:var(--danger);font-weight:600;"':'')+'>Δ '+(diff>=0?'+':'')+Math.round(diff)+(off?' ⚠':'')+'</span><div class="strength-bar"><i style="width:'+pct.toFixed(0)+'%"></i></div></div>';
+  return '<div class="strength-row"><span>Forza <b>'+Math.round(st.a)+'</b> &ndash; <b>'+Math.round(st.b)+'</b><span class="prob-line">Vittoria attesa '+probText(st.a, st.b)+'</span></span><span'+(off?' style="color:var(--danger);font-weight:600;"':'')+'>Δ '+(diff>=0?'+':'')+Math.round(diff)+(off?' ⚠':'')+'</span><div class="strength-bar"><i style="width:'+pct.toFixed(0)+'%"></i></div></div>';
 }
 function courtsSummaryHtml(courtStrengths, methodLabel){
   const vals = courtStrengths.filter(v => v && v.a !== undefined);
@@ -661,6 +673,16 @@ function courtsSummaryHtml(courtStrengths, methodLabel){
   const meanA = vals.reduce((s,v)=>s+v.a,0)/vals.length, meanB = vals.reduce((s,v)=>s+v.b,0)/vals.length;
   return '<p class="hint"><b>Forza squadre ('+methodLabel+'):</b> Δ match da '+Math.round(mn)+' a '+Math.round(mx)+' punti &middot; medie lato A/B '+Math.round(meanA)+' / '+Math.round(meanB)+'.</p>';
 }
+// Probabilità attesa che la squadra con forza a batta quella con forza b (scala Elo).
+function winProb(a, b){ return 1/(1+Math.pow(10,(b-a)/400)); }
+function probText(a, b){ const p = Math.round(winProb(a,b)*100); return p+'% &ndash; '+(100-p)+'%'; }
+function isUpset(m){
+  if(!m || typeof m.pA !== 'number') return false;
+  const res = matchWinner(m.s1, m.s2, m.tb);
+  if(res === 0.5) return false;
+  return (res === 1 ? m.pA : 1 - m.pA) <= 0.30;
+}
+function upsetTag(m){ return isUpset(m) ? ' <span class="upset" title="Risultato poco previsto dai rating">⚡ sorpresa</span>' : ''; }
 function teamStrengthIds(ids, gm){
   const v = (ids||[]).filter(Boolean).map(id => strengthOfId(id, gm));
   return v.length ? v.reduce((a,b)=>a+b,0)/v.length : null;
@@ -676,7 +698,7 @@ function pairStrengthHtml(a1,a2,b1,b2){
   const av = (strengthOfName(a1,gm) + strengthOfName(a2,gm)) / 2;
   const bv = (strengthOfName(b1,gm) + strengthOfName(b2,gm)) / 2;
   const diff = Math.abs(av - bv);
-  return '<p class="hint" style="margin-top:10px;"><b>Forza ('+methodLabel+'):</b> Coppia A '+Math.round(av)+' &middot; Coppia B '+Math.round(bv)+' &middot; differenza '+Math.round(diff)+' punti.</p>';
+  return '<p class="hint" style="margin-top:10px;"><b>Forza ('+methodLabel+'):</b> Coppia A '+Math.round(av)+' &middot; Coppia B '+Math.round(bv)+' &middot; differenza '+Math.round(diff)+' punti &middot; vittoria attesa '+probText(av, bv)+'.</p>';
 }
 // Versione compatta, per una riga già salvata (partita extra in elenco): "Forza: 1005 – 983".
 function pairStrengthShort(names1, names2){
@@ -685,7 +707,7 @@ function pairStrengthShort(names1, names2){
   const b = (names2||[]).map(n => strengthOfName(n,gm));
   if(!a.length || !b.length) return '';
   const av = a.reduce((x,y)=>x+y,0)/a.length, bv = b.reduce((x,y)=>x+y,0)/b.length;
-  return '<span class="hint" style="display:block;margin-top:2px;">Forza: '+Math.round(av)+' &ndash; '+Math.round(bv)+'</span>';
+  return '<span class="hint" style="display:block;margin-top:2px;">Forza: '+Math.round(av)+' &ndash; '+Math.round(bv)+' &middot; attesa '+probText(av, bv)+'</span>';
 }
 let lastSuggest = null;   // { by, sig } dell'ultimo "Suggerisci abbinamenti", per avvisare se cambiando metodo le coppie restano identiche
 let suggestNote = '';
@@ -957,6 +979,40 @@ function assignCourtsAndSides(matches){
   return placement.filter(x => x !== null);
 }
 
+// Dopo un abbinamento forzato nel girone all'italiana: cerca un completamento valido (ogni squadra incontra tutte le altre
+// una volta sola) dei turni che restano. Con ricerca a ritroso, perché scegliere i turni uno alla volta può chiudere in un vicolo cieco.
+function findRoundRobinCompletion(ids, playedKeys, roundsLeft){
+  const used = new Set(playedKeys), out = [];
+  let nodes = 0;
+  const LIMIT = 300000;
+  function matchRound(rem, cur, cont){
+    if(rem.length === 0) return cont();
+    const a = rem[0];
+    for(let i = 1; i < rem.length; i++){
+      const b = rem[i], k = pairKey(a, b);
+      if(used.has(k)) continue;
+      if(++nodes > LIMIT) return false;
+      used.add(k); cur.push([a, b]);
+      if(matchRound(rem.filter((_, j) => j !== 0 && j !== i), cur, cont)) return true;
+      cur.pop(); used.delete(k);
+    }
+    return false;
+  }
+  function rounds(left){
+    if(left === 0) return true;
+    const cur = [];
+    return matchRound(ids.slice(), cur, () => { out.push(cur.slice()); if(rounds(left - 1)) return true; out.pop(); return false; });
+  }
+  return rounds(roundsLeft) ? out : null;
+}
+function rebuildClassicSchedule(){
+  if(!t.classicSchedule) return false;
+  const roundsLeft = Math.max(0, t.maxRounds - t.round);
+  const rest = findRoundRobinCompletion(t.teams.map(tm => tm.id), t.played || [], roundsLeft);
+  if(!rest) return false;
+  t.classicSchedule = t.classicSchedule.slice(0, t.round - 1).concat([t.currentMatches.map(m => [m[0], m[1]])], rest);
+  return true;
+}
 function classicSchedule(teamIds){
   const n = teamIds.length;
   const fixed = teamIds[0];
@@ -1056,6 +1112,10 @@ function toggleTbRow(idA, idB, rowId){
 }
 // Salva nella bozza il punteggio digitato per un campo del turno in corso, così un render
 // (es. aggiungendo o togliendo una partita extra) non lo perde più.
+function setRoundSwap(idx, which, checked){
+  if(!roundDraft[idx]) roundDraft[idx] = {};
+  roundDraft[idx]['sw'+which] = !!checked;
+}
 function setRoundScore(idx, field, val){
   if(!roundDraft[idx]) roundDraft[idx] = {};
   roundDraft[idx][field] = val;
@@ -1154,7 +1214,7 @@ function applyPairEdit(){
     t.restingThisRound = newRest;
     // Un abbinamento forzato rompe il girone all'italiana precalcolato: dai turni successivi si
     // abbina in base alle partite già giocate (nessuna ripetizione finché possibile).
-    if(changed && t.useClassicSchedule){ t.useClassicSchedule = false; delete t.classicSchedule; }
+    if(changed && t.useClassicSchedule && !rebuildClassicSchedule()){ t.useClassicSchedule = false; delete t.classicSchedule; }
   } else {
     const courts = pairEdit.courts;
     const allIds = [];
@@ -1207,7 +1267,15 @@ function submitResults(){
     t2.setsWon += s2; t2.setsLost += s1; t2.matchesPlayed++;
     const win = matchWinner(s1, s2, tb);
     if(win===1) t1.wins++; else if(win===0) t2.wins++;
-    roundResults.push({aId:t1.id, bId:t2.id, a:t1.name, b:t2.name, s1, s2, tb, court:idx});
+    const gmP = strengthMap();
+    const av = teamStrengthNames(t1.players, gmP), bv = teamStrengthNames(t2.players, gmP);
+    const rd = roundDraft[idx] || {};
+    const pa = t1.players.map(resolveId), pb = t2.players.map(resolveId);
+    // Lato di gioco: l'ordine nella squadra è Sx/Dx; la spunta "lati invertiti" lo capovolge per questa partita.
+    const sides = { a: rd.swA ? pa.slice().reverse() : pa, b: rd.swB ? pb.slice().reverse() : pb };
+    const rec = {aId:t1.id, bId:t2.id, a:t1.name, b:t2.name, s1, s2, tb, court:idx, sides};
+    if(av !== null && bv !== null) rec.pA = Math.round(winProb(av, bv) * 1000) / 1000;
+    roundResults.push(rec);
   });
   t.history.push({round:t.round, resting:(t.restingThisRound||[]), matches:roundResults});
   t.currentMatches = [];
@@ -1280,34 +1348,15 @@ async function saveFile(filename, blob){
       const downloads = await claude.use('downloads');
       if(downloads){ await downloads.save({ filename, data: blob }); return true; }
     }
-  }catch(e){ /* fall through */ }
-  // File System Access API (Chrome desktop / Edge)
-  try{
-    if(typeof window.showSaveFilePicker === 'function'){
-      const handle = await window.showSaveFilePicker({
-        suggestedName: filename,
-        types: [{ description: 'Backup ZIP', accept: { 'application/zip': ['.zip'] } }]
-      });
-      const writable = await handle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-      return true;
-    }
-  }catch(e){
-    if(e && e.name === 'AbortError') return false;
-    /* not supported or other error → fall through */
-  }
+  }catch(e){ /* fall through to plain browser download */ }
   try{
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.rel = 'noopener';
-    a.style.display = 'none';
+    a.href = url; a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+    setTimeout(()=>URL.revokeObjectURL(url), 2000);
     return true;
   }catch(e2){ return false; }
 }
@@ -1317,134 +1366,42 @@ function timestampForFilename(){
   const p = n => String(n).padStart(2,'0');
   return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'_'+p(d.getHours())+p(d.getMinutes());
 }
-function buildBackupPayload(){
-  return {
-    version: 1,
-    app: 'torneo-padel',
-    exportedAt: new Date().toISOString(),
-    roster: roster,
-    tournament: t,
-    archive: archive
-  };
+// Condivisione: un unico file di testo (JSON), perché i menu di condivisione dei telefoni accettano i .txt (WhatsApp compreso)
+// ma spesso rifiutano gli .zip. Il salvataggio su file ("Scarica") resta un .zip. L'importazione legge entrambi i formati.
+function backupObject(){
+  return { app:'torneo-padel', version:APP_VERSION, exported:new Date().toISOString(), roster:roster, tournament:t, archive:archive };
 }
-async function buildBackupZipBlob(){
-  const zip = new JSZip();
-  zip.file('roster.json', JSON.stringify(roster, null, 2));
-  zip.file('tournament.json', JSON.stringify(t, null, 2));
-  zip.file('archive.json', JSON.stringify(archive, null, 2));
-  // Anche un unico JSON dentro lo zip (compatibilità futura)
-  zip.file('backup.json', JSON.stringify(buildBackupPayload(), null, 2));
-  return zip.generateAsync({type:'blob'});
+function buildBackupBlob(type){
+  return new Blob([JSON.stringify(backupObject(), null, 1)], { type: type || 'text/plain' });
 }
-function buildBackupJsonBlob(){
-  const json = JSON.stringify(buildBackupPayload(), null, 2);
-  return new Blob([json], { type: 'application/json' });
-}
-function applyImportedData(data){
-  // data: { roster?, tournament?, archive? } oppure payload unificato
-  const r = data.roster !== undefined ? data.roster : (data.version ? data.roster : null);
-  const tm = data.tournament !== undefined ? data.tournament : null;
-  const a = data.archive !== undefined ? data.archive : null;
-  let any = false;
-  if(r != null){ roster = normalizeRoster(r); saveRoster(); any = true; }
-  if(tm != null){ t = normalizeTournament(tm); saveTournament(); extraDraft = null; roundDraft = {}; pairEdit = null; any = true; }
-  if(a != null){ archive = normalizeArchive(a); any = true; }
-  if(!any) return false;
-  ensureArchiveIds();
-  recomputeRatings();
-  if(r != null) saveRoster();
-  if(a != null) saveArchive();
-  ratingMigration = false;
-  return true;
-}
-// Backup in un tocco: apre il menu di condivisione del telefono.
-// Su Android Chrome i ZIP non sono tra i tipi condividibili (solo testo/immagini/pdf…):
-// quindi condividiamo un .json (text/plain o application/json). Lo ZIP resta per "Scarica".
+// Backup in un tocco: apre il menu di condivisione del telefono con il file già allegato
+// (WhatsApp, mail, Drive…). Dove non è disponibile, ripiega sul normale scaricamento.
 async function shareBackup(){
-  // Percorso minimalista per Android:
-  // 1) File .txt text/plain (tra i pochi MIME accettati dal foglio Condividi)
-  // 2) share SUBITO, senza await prima e senza filtrare troppo con canShare
-  // 3) se fallisce: messaggio con errore reale + download di emergenza
-  const ts = timestampForFilename();
-  let lastErr = '';
+  dataMsg = 'Preparazione backup…';
+  render();
   try{
-    // JSON compatto = più piccolo e più veloce da creare (niente await)
-    const jsonStr = JSON.stringify(buildBackupPayload());
-    const bytes = jsonStr.length;
-    const blob = new Blob([jsonStr], { type: 'text/plain' });
-    // Estensione .txt: su Android allinea MIME e nome file (canShare è più permissivo)
-    const fname = 'torneo-padel-backup-'+ts+'.txt';
-    const file = new File([blob], fname, { type: 'text/plain', lastModified: Date.now() });
-
-    if(typeof navigator.share === 'function'){
-      // A) solo file (spesso il più affidabile su Android)
+    const fname = 'torneo-padel-backup-'+timestampForFilename()+'.txt';
+    const blob = buildBackupBlob('text/plain');
+    const file = new File([blob], fname, { type:'text/plain' });
+    if(navigator.share && navigator.canShare && navigator.canShare({ files:[file] })){
       try{
-        // Non bloccare se canShare manca o restituisce false: su alcuni device è bugiardo
-        let blocked = false;
-        try{
-          if(typeof navigator.canShare === 'function' && !navigator.canShare({ files: [file] })){
-            blocked = true;
-          }
-        }catch(e){ blocked = false; }
-        if(!blocked){
-          await navigator.share({ files: [file] });
-          markBackup();
-          dataMsg = 'Backup condiviso ('+Math.max(1, Math.round(bytes/1024))+' KB).';
-          render();
-          return;
-        }
-      }catch(err){
-        if(err && err.name === 'AbortError'){
-          dataMsg = 'Condivisione annullata: il backup non è stato salvato.';
-          render();
-          return;
-        }
-        lastErr = (err && (err.name || '') + (err.message ? ': '+err.message : '')) || String(err);
-      }
-
-      // B) file + titolo (alcuni launcher Android lo preferiscono)
-      try{
-        await navigator.share({ files: [file], title: 'Backup Torneo Padel', text: 'Backup Torneo Padel' });
+        await navigator.share({ files:[file], title:'Backup Torneo Padel' });
         markBackup();
-        dataMsg = 'Backup condiviso ('+Math.max(1, Math.round(bytes/1024))+' KB).';
-        render();
-        return;
+        dataMsg = 'Backup condiviso.';
       }catch(err){
         if(err && err.name === 'AbortError'){
           dataMsg = 'Condivisione annullata: il backup non è stato salvato.';
-          render();
-          return;
-        }
-        lastErr = (err && (err.name || '') + (err.message ? ': '+err.message : '')) || String(err);
-      }
-
-      // C) come testo puro se il backup è piccolo (< 50 KB): WhatsApp/SMS accettano text
-      if(bytes < 50000){
-        try{
-          await navigator.share({ title: 'Backup Torneo Padel', text: jsonStr });
-          markBackup();
-          dataMsg = 'Backup condiviso come testo.';
-          render();
-          return;
-        }catch(err){
-          if(err && err.name === 'AbortError'){
-            dataMsg = 'Condivisione annullata: il backup non è stato salvato.';
-            render();
-            return;
-          }
-          lastErr = (err && (err.name || '') + (err.message ? ': '+err.message : '')) || String(err);
+        } else {
+          const ok = await saveFile(fname, blob);
+          if(ok) markBackup();
+          dataMsg = ok ? 'Condivisione non riuscita: backup scaricato come file.' : 'Backup non riuscito.';
         }
       }
     } else {
-      lastErr = 'navigator.share assente';
+      const ok = await saveFile(fname, blob);
+      if(ok) markBackup();
+      dataMsg = ok ? 'Condivisione di file non supportata qui: backup scaricato.' : 'Backup non riuscito.';
     }
-
-    // Fallback: download .txt (sempre leggibile / importabile)
-    const ok = await saveFile(fname, blob);
-    if(ok) markBackup();
-    dataMsg = ok
-      ? ('Condivisione non riuscita'+(lastErr ? ' ('+lastErr+')' : '')+': file scaricato ('+Math.max(1, Math.round(bytes/1024))+' KB).')
-      : ('Backup non riuscito'+(lastErr ? ': '+lastErr : '')+'.');
   }catch(e){
     dataMsg = 'Backup non riuscito'+(e && e.message ? ': '+e.message : '')+'.';
   }
@@ -1455,17 +1412,20 @@ async function exportData(){
   dataMsg = 'Preparazione backup…';
   render();
   try{
-    if(typeof JSZip === 'undefined'){
-      // Senza JSZip scarica comunque il JSON
-      const blob = buildBackupJsonBlob();
-      const ok = await saveFile('torneo-padel-backup-'+timestampForFilename()+'.json', blob);
-      if(ok) markBackup();
-      dataMsg = ok ? 'Backup salvato (.json).' : 'Esportazione annullata o non riuscita.';
-      render();
-      return;
+    // Salvataggio su file: archivio .zip (rubrica, torneo e archivio in tre file). Se la libreria non è disponibile, ripiega sul .json.
+    let blob, fname;
+    if(typeof JSZip !== 'undefined'){
+      const zip = new JSZip();
+      zip.file('roster.json', JSON.stringify(roster, null, 2));
+      zip.file('tournament.json', JSON.stringify(t, null, 2));
+      zip.file('archive.json', JSON.stringify(archive, null, 2));
+      blob = await zip.generateAsync({type:'blob'});
+      fname = 'torneo-padel-backup-'+timestampForFilename()+'.zip';
+    } else {
+      blob = buildBackupBlob('application/json');
+      fname = 'torneo-padel-backup-'+timestampForFilename()+'.json';
     }
-    const blob = await buildBackupZipBlob();
-    const ok = await saveFile('torneo-padel-backup-'+timestampForFilename()+'.zip', blob);
+    const ok = await saveFile(fname, blob);
     if(ok) markBackup();
     dataMsg = ok ? 'Backup salvato.' : 'Esportazione annullata o non riuscita.';
   }catch(e){
@@ -1476,62 +1436,50 @@ async function exportData(){
 
 function triggerImport(){ const el = document.getElementById('importFile'); if(el) el.click(); }
 
+function applyImportedData(data){
+  const rf = data.roster, tf = data.tournament, af = data.archive;
+  if(!rf && !tf && !af) throw new Error('il file non contiene dati riconoscibili');
+  if(rf){ roster = normalizeRoster(rf); saveRoster(); }
+  if(tf){ t = normalizeTournament(tf); saveTournament(); extraDraft = null; roundDraft = {}; pairEdit = null; }
+  if(af){ archive = normalizeArchive(af); }
+  // Id nascosti e rating ricalcolati dall'archivio (anche per backup di versioni precedenti).
+  ensureArchiveIds();
+  recomputeRatings();
+  if(rf) saveRoster();
+  if(af) saveArchive();
+  ratingMigration = false;
+}
 function handleImportFile(file){
   if(!file){ dataMsg = 'Nessun file selezionato.'; render(); return; }
   dataMsg = 'Importazione in corso…';
   render();
-  const name = (file.name || '').toLowerCase();
   const reader = new FileReader();
-  reader.onerror = function(){ dataMsg = 'Lettura del file non riuscita.'; render(); };
-
-  // JSON singolo (condivisione Android) o testo
-  if(name.endsWith('.json') || name.endsWith('.txt') || (file.type && (file.type.indexOf('json') >= 0 || file.type.indexOf('text') === 0))){
-    reader.onload = function(e){
-      try{
-        const data = JSON.parse(typeof e.target.result === 'string' ? e.target.result : new TextDecoder().decode(e.target.result));
-        if(!applyImportedData(data)){
-          dataMsg = 'Il file non contiene dati riconoscibili.';
-        } else {
-          dataMsg = 'Dati importati.';
-        }
-      }catch(err){
-        dataMsg = 'File non valido'+(err && err.message ? ': '+err.message : '')+'.';
-      }
-      render();
-    };
-    reader.readAsText(file);
-    return;
-  }
-
-  // ZIP (e fallback generico)
-  if(typeof JSZip === 'undefined'){ dataMsg = 'Libreria di importazione non caricata.'; render(); return; }
   reader.onload = async function(e){
     try{
-      const zip = await JSZip.loadAsync(e.target.result);
-      // Preferisci backup.json unificato se presente
-      const unified = zip.file('backup.json');
-      if(unified){
-        const data = JSON.parse(await unified.async('string'));
-        if(!applyImportedData(data)){ dataMsg = 'Il file non contiene dati riconoscibili.'; render(); return; }
-        dataMsg = 'Dati importati.';
-        render();
-        return;
+      const buf = e.target.result;
+      const head = new Uint8Array(buf.slice(0, 2));
+      if(head[0] === 0x50 && head[1] === 0x4B){
+        // vecchio formato: archivio .zip
+        if(typeof JSZip === 'undefined'){ dataMsg = 'Libreria per i backup .zip non caricata (serve connessione, solo per i vecchi backup).'; render(); return; }
+        const zip = await JSZip.loadAsync(buf);
+        const rf = zip.file('roster.json'), tf = zip.file('tournament.json'), af = zip.file('archive.json');
+        applyImportedData({
+          roster: rf ? JSON.parse(await rf.async('string')) : null,
+          tournament: tf ? JSON.parse(await tf.async('string')) : null,
+          archive: af ? JSON.parse(await af.async('string')) : null
+        });
+      } else {
+        let text = new TextDecoder('utf-8').decode(buf);
+        if(text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+        applyImportedData(JSON.parse(text));
       }
-      const rf = zip.file('roster.json');
-      const tf = zip.file('tournament.json');
-      const af = zip.file('archive.json');
-      if(!rf && !tf && !af){ dataMsg = 'Il file non contiene dati riconoscibili.'; render(); return; }
-      const pack = {};
-      if(rf) pack.roster = JSON.parse(await rf.async('string'));
-      if(tf) pack.tournament = JSON.parse(await tf.async('string'));
-      if(af) pack.archive = JSON.parse(await af.async('string'));
-      applyImportedData(pack);
       dataMsg = 'Dati importati.';
     }catch(err){
       dataMsg = 'File non valido'+(err && err.message ? ': '+err.message : '')+'.';
     }
     render();
   };
+  reader.onerror = function(){ dataMsg = 'Lettura del file non riuscita.'; render(); };
   reader.readAsArrayBuffer(file);
 }
 
@@ -1547,18 +1495,15 @@ function backupBanner(){
   if(archive.length === 0 || n === 0) return '';
   const lb = getLastBackup();
   const when = lb ? 'Ultimo backup: '+new Date(lb).toLocaleDateString('it-IT')+'.' : 'Non hai ancora fatto nessun backup.';
-  const shareBtn = (typeof navigator !== 'undefined' && navigator.share)
-    ? '<button class="primary" onclick="shareBackup()">Condividi backup</button>'
-    : '<button class="primary" onclick="exportData()">Scarica backup</button>';
-  return '<div class="banner"><p style="margin:0 0 10px;"><b>Backup da aggiornare.</b> '+n+(n===1 ? ' torneo archiviato non è' : ' tornei archiviati non sono')+' ancora nel backup. '+when+' I dati vivono solo in questo browser.</p>'+shareBtn+'</div>';
+  return '<div class="banner"><p style="margin:0 0 10px;"><b>Backup da aggiornare.</b> '+n+(n===1 ? ' torneo archiviato non è' : ' tornei archiviati non sono')+' ancora nel backup. '+when+' I dati vivono solo in questo browser.</p><button class="primary" onclick="exportData()">Scarica backup</button></div>';
 }
 
 function dataSection(){
   let html = '<section><p class="section-label">Dati</p>';
   html += '<div class="data-row"><button class="ghost" onclick="shareBackup()">Condividi backup</button>';
   html += '<button class="ghost" onclick="exportData()">Scarica (.zip)</button></div>';
-  html += '<div class="data-row"><label class="ghost" for="importFile" style="cursor:pointer;">Importa backup</label></div>';
-  html += '<input type="file" id="importFile" accept=".zip,.json,.txt,application/json,text/plain,text/json" onchange="handleImportFile(this.files[0])" />';
+  html += '<div class="data-row data-sep"><label class="ghost" for="importFile" style="cursor:pointer;">Importa backup</label></div>';
+  html += '<input type="file" id="importFile" accept=".txt,.json,.zip,text/plain,application/json,application/zip" onchange="handleImportFile(this.files[0])" />';
   html += '<p class="hint" style="margin-top:8px;">Tornei archiviati: '+archive.length+' (ultimi '+ARCHIVE_MAX+')'+(getLastBackup() ? ' · ultimo backup: '+new Date(getLastBackup()).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : ' · nessun backup ancora')+(storagePersisted === true ? ' · memoria dell\'app protetta dal telefono' : (storagePersisted === false ? ' · memoria non protetta: fai il backup spesso' : ''))+'</p>';
   if(dataMsg){ html += '<p class="hint" style="margin-top:8px;">'+dataMsg+'</p>'; }
   html += '</section>';
@@ -1982,7 +1927,7 @@ function archiveDetailBody(a, i){
       if(editing){
         html += '<div class="edit-match"><p class="edit-match-name">'+esc(m.a)+' <span style="opacity:.7;">vs</span> '+esc(m.b)+'</p>'+scoreInputs('ea_'+hi+'_'+mi+'_1','ea_'+hi+'_'+mi+'_2',m.s1,m.s2,'ea_'+hi+'_'+mi+'_tb1','ea_'+hi+'_'+mi+'_tb2','ea_'+hi+'_'+mi+'_tbrow',m.tb)+'</div>';
       } else {
-        html += '<div class="history-match"><span>'+m.a+' vs '+m.b+pairStrengthShort(m.a.split(' & '),m.b.split(' & '))+'</span><span class="extra-side">'+m.s1+' &ndash; '+m.s2+(m.tb?' <span class="tb-inline">(tb '+m.tb[0]+'-'+m.tb[1]+')</span>':'')+' <button class="small" title="Sposta tra le partite extra" onclick="moveArchiveMatchToExtra('+i+','+hi+','+mi+')">→ extra</button><button class="small danger" onclick="askRemoveArchiveRoundMatch('+i+','+hi+','+mi+')">✕</button></span></div>';
+        html += '<div class="history-match"><span>'+m.a+' vs '+m.b+pairStrengthShort(m.a.split(' & '),m.b.split(' & '))+'</span><span class="extra-side">'+m.s1+' &ndash; '+m.s2+(m.tb?' <span class="tb-inline">(tb '+m.tb[0]+'-'+m.tb[1]+')</span>':'')+upsetTag(m)+' <button class="small" title="Sposta tra le partite extra" onclick="moveArchiveMatchToExtra('+i+','+hi+','+mi+')">→ extra</button><button class="small danger" onclick="askRemoveArchiveRoundMatch('+i+','+hi+','+mi+')">✕</button></span></div>';
       }
     });
   });
@@ -2301,7 +2246,11 @@ function submitRotatingResults(){
   const roundResults = t.currentMatches.map((m,idx) => {
     const s1 = parseInt(document.getElementById('s1_'+idx).value), s2 = parseInt(document.getElementById('s2_'+idx).value);
     const tb = isTiedSix(s1, s2) ? [parseInt(document.getElementById('tb1_'+idx).value), parseInt(document.getElementById('tb2_'+idx).value)] : undefined;
-    return { pa:m.pa, pb:m.pb, a: m.aName, b: m.bName, s1, s2, tb, court: idx };
+    const gmP = strengthMap();
+    const av = teamStrengthIds(m.pa, gmP), bv = teamStrengthIds(m.pb, gmP);
+    const rec = { pa:m.pa, pb:m.pb, a: m.aName, b: m.bName, s1, s2, tb, court: idx };
+    if(av !== null && bv !== null) rec.pA = Math.round(winProb(av, bv) * 1000) / 1000;
+    return rec;
   });
   t.history.push({ round:t.round, resting:(t.restingThisRound||[]), matches:roundResults });
   t.currentMatches = [];
@@ -2727,7 +2676,7 @@ function diagView(){
   });
   html += '</table>';
   html += '<p class="hint" style="margin-top:8px;">Se il "reale" è molto sotto il "previsto", i rating sono troppo estremi (K troppo alto o punteggio troppo generoso). Se è sopra, sono troppo prudenti.</p>';
-  html += '<button class="ghost" onclick="showDiag=false;showRanking=true;render();">Torna alla classifica</button>';
+  html += '<button class="ghost back-active" onclick="showDiag=false;showRanking=true;render();">Torna alla classifica</button>';
   html += '</section>';
   return html;
 }
@@ -2817,11 +2766,13 @@ function formatArchiveResults(a){
   if(a.excluded) text += ' · escluso dal rating';
   text += '\n\n';
 
+  let anyUpset = false;
   (a.history || []).forEach(h => {
     text += '*Turno ' + h.round + '*\n';
-    (h.matches || []).forEach(m => { text += '• ' + m.a + ' – ' + m.b + ' → *' + scoreText(m) + '*\n'; });
+    (h.matches || []).forEach(m => { anyUpset = anyUpset || isUpset(m); text += '• ' + m.a + ' – ' + m.b + ' → *' + scoreText(m) + '*' + (isUpset(m) ? ' ⚡' : '') + '\n'; });
     text += '\n';
   });
+  if(anyUpset) text += '⚡ = sorpresa (risultato poco previsto)\n\n';
 
   if(a.extras && a.extras.length){
     text += '*Partite extra*\n';
@@ -2908,6 +2859,8 @@ function shareLiveResults(){
 }
 function shareRankingWhatsApp(){
   const all = activeKeys().map(k => ({ key:k, ...roster[k] })).filter(p => !p.frozen);
+  let anyProv = false;
+  const nm = (id, name) => { if(isProvisional(id)){ anyProv = true; return cutStr(name, 10) + '*'; } return cutStr(name, 11); };
   let text = '';
   let lines = [];
   const arrowOf = (mv, key) => {
@@ -2925,7 +2878,7 @@ function shareRankingWhatsApp(){
     const mv = movement(positionsGlicko);
     lines.push(padR('#', 4) + padR('Giocatore', 12) + padL('Rating', 7) + padL('±RD', 5) + padL('Trend', 6));
     rows.forEach((r,i) => {
-      lines.push(padR(rankLabel(ranks[i]), 4) + padR(cutStr(r.name, 11), 12) + padL(Math.round(r.rating), 7) + padL(Math.round(r.rd), 5) + padL(arrowOf(mv, r.id), 6));
+      lines.push(padR(rankLabel(ranks[i]), 4) + padR(nm(r.id, r.name), 12) + padL(Math.round(r.rating), 7) + padL(Math.round(r.rd), 5) + padL(arrowOf(mv, r.id), 6));
     });
   } else if(rankMode === 'win'){
     text = '📊 *CLASSIFICA % VITTORIE*\n(min. ' + MIN_MATCHES_WINRATE + ' partite)\n\n';
@@ -2935,7 +2888,7 @@ function shareRankingWhatsApp(){
     const mv = movement(positionsWin);
     lines.push(padR('#', 4) + padR('Giocatore', 12) + padL('%', 5) + padL('V/P', 7) + padL('Trend', 6));
     ranked.forEach((p,i) => {
-      lines.push(padR(rankLabel(ranks[i]), 4) + padR(cutStr(p.name, 11), 12) + padL(Math.round(winRate(p)*100) + '%', 5) + padL(fmtWins(p.wins) + '/' + p.matches, 7) + padL(arrowOf(mv, p.key), 6));
+      lines.push(padR(rankLabel(ranks[i]), 4) + padR(nm(p.key, p.name), 12) + padL(Math.round(winRate(p)*100) + '%', 5) + padL(fmtWins(p.wins) + '/' + p.matches, 7) + padL(arrowOf(mv, p.key), 6));
     });
   } else {
     text = '📊 *CLASSIFICA ELO*\n\n';
@@ -2944,12 +2897,13 @@ function shareRankingWhatsApp(){
     const mv = movement(positionsElo);
     lines.push(padR('#', 4) + padR('Giocatore', 12) + padL('Elo', 6) + padL('Trend', 6));
     list.forEach((p,i) => {
-      lines.push(padR(rankLabel(ranks[i]), 4) + padR(cutStr(p.name, 11), 12) + padL(Math.round(p.elo||START_ELO), 6) + padL(arrowOf(mv, p.key), 6));
+      lines.push(padR(rankLabel(ranks[i]), 4) + padR(nm(p.key, p.name), 12) + padL(Math.round(p.elo||START_ELO), 6) + padL(arrowOf(mv, p.key), 6));
     });
   }
   text += monoBlock(lines);
   const frozen = activeKeys().filter(k => roster[k].frozen).map(k => roster[k].name);
   if(frozen.length) text += '\n❄ Congelati: ' + frozen.join(', ') + '\n';
+  if(anyProv) text += '\n* provvisorio (meno di ' + PROVISIONAL_MATCHES + ' partite)';
   text += '\n_↑↓ = cambio posizione vs torneo precedente_';
   shareText(text.trim(), 'Classifica Padel');
 }
@@ -3164,6 +3118,7 @@ function playerProfileView(id){
   const winHistory = [];
   let cumW = 0, cumM = 0;
   const glickoSlice = [];
+  const sideStats = { Sx:{m:0,w:0}, Dx:{m:0,w:0} }, sideByPartner = {};
 
   archive.forEach((a, aIdx) => {
     if(a.excluded) return;
@@ -3177,6 +3132,21 @@ function playerProfileView(id){
     const gRow = gRows.find(r => r.id === id);
     if(gRow) glickoHistory.push({ label: 'T'+(aIdx+1), val: gRow.rating, rd: gRow.rd });
 
+    (a.history || []).forEach(h => (h.matches || []).forEach(m => {
+      if(!m.sides) return;   // solo partite con lato registrato (dalla v28, squadre fisse)
+      const iA = (m.sides.a || []).indexOf(id), iB = (m.sides.b || []).indexOf(id);
+      if(iA < 0 && iB < 0) return;
+      const mine = iA >= 0 ? m.sides.a : m.sides.b, pos = iA >= 0 ? iA : iB;
+      const side = pos === 0 ? 'Sx' : 'Dx';
+      const r = matchWinner(m.s1, m.s2, m.tb);
+      const wv = r === 0.5 ? 0.5 : (((r === 1) === (iA >= 0)) ? 1 : 0);
+      sideStats[side].m++; sideStats[side].w += wv;
+      const partner = mine.find(x => x !== id);
+      if(partner){
+        if(!sideByPartner[partner]) sideByPartner[partner] = { Sx:{m:0,w:0}, Dx:{m:0,w:0} };
+        sideByPartner[partner][side].m++; sideByPartner[partner][side].w += wv;
+      }
+    }));
     archiveGames(a).forEach(gm => {
       const inA = (gm.idsA || []).includes(id), inB = (gm.idsB || []).includes(id);
       if(!inA && !inB) return;
@@ -3279,7 +3249,7 @@ function playerProfileView(id){
   }
 
   let html = '<div class="modal-backdrop" onclick="closePlayerProfile()"><div class="modal-content" onclick="event.stopPropagation()">';
-  html += '<h2 style="margin:0 0 4px;font-family:var(--font-head);font-size:22px;">'+esc(p.name)+(p.frozen?' ❄':'')+'</h2>';
+  html += '<h2 style="margin:0 0 4px;font-family:var(--font-head);font-size:22px;">'+esc(p.name)+(p.frozen?' ❄':'')+provTag(id)+'</h2>';
   html += '<p class="sub" style="margin:0 0 1rem;">'+headerRating;
   if(p.matches) html += ' · '+p.matches+' partite · '+Math.round((p.wins/p.matches)*100)+'% V';
   html += '</p>';
@@ -3293,6 +3263,20 @@ function playerProfileView(id){
   html += '<p style="margin:4px 0 0;font-weight:600;">'+(nemeses.length ? esc(nemeses[0].name) : 'Dati insufficienti')+'</p></div>';
   if(nemeses.length) html += '<div class="val" style="color:var(--danger);">'+Math.round(nemeses[0].wr*100)+'%<span style="font-size:11px;font-weight:400;color:var(--ink-dim);"> tue V</span></div>';
   html += '</div>';
+  if(sideStats.Sx.m + sideStats.Dx.m > 0){
+    const pc = o => o.m ? Math.round(o.w / o.m * 100) + '%' : '—';
+    html += '<p class="section-label" style="margin-top:14px;">Lato di gioco (solo partite con lato registrato)</p>';
+    ['Sx','Dx'].forEach(sd => {
+      html += '<div class="stat-box"><div><p style="margin:0;font-size:12px;color:var(--ink-dim);">'+(sd==='Sx'?'Sinistra (Sx)':'Destra (Dx)')+'</p><p style="margin:4px 0 0;font-weight:600;">'+sideStats[sd].m+(sideStats[sd].m===1?' partita':' partite')+'</p></div><div class="val">'+pc(sideStats[sd])+'<span style="font-size:11px;font-weight:400;color:var(--ink-dim);"> V</span></div></div>';
+    });
+    const few = sideStats.Sx.m < 5 || sideStats.Dx.m < 5;
+    const rows = Object.keys(sideByPartner).map(k => ({ k, tot: sideByPartner[k].Sx.m + sideByPartner[k].Dx.m })).filter(x => x.tot >= 2).sort((a,b) => b.tot - a.tot).slice(0, 6);
+    rows.forEach(x => {
+      const o = sideByPartner[x.k], nm = roster[x.k] ? roster[x.k].name : x.k;
+      html += '<p class="hint" style="margin:6px 0 0;">con '+esc(nm)+': Sx '+o.Sx.m+' ('+pc(o.Sx)+') · Dx '+o.Dx.m+' ('+pc(o.Dx)+')</p>';
+    });
+    if(few) html += '<p class="hint" style="margin-top:8px;">Poche partite per lato: i numeri sono solo indicativi.</p>';
+  }
   html += '<button class="ghost" style="margin-top:1rem;" onclick="closePlayerProfile()">Chiudi scheda</button>';
   html += '</div></div>';
   return html;
@@ -3322,7 +3306,7 @@ function rankingView(){
       rows.forEach((r,i) => {
         const rk = ranks[i];
         html += '<div class="rank-row'+(rk.rank===1?' top1':'')+'"><span class="rank-num'+(rk.tied?' tied':'')+'">'+rankLabel(rk)+'</span>';
-        html += '<span class="rank-name clickable" onclick="openPlayerProfile(\''+r.id+'\')">'+esc(r.name)+'</span>';
+        html += '<span class="rank-name clickable" onclick="openPlayerProfile(\''+r.id+'\')">'+esc(r.name)+'</span>'+provTag(r.id);
         html += arrow(mvG, r.id);
         html += '<span class="rank-elo">'+Math.round(r.rating)+'</span>';
         html += '<span class="rank-meta">±'+Math.round(r.rd)+' · '+r.games+'</span></div>';
@@ -3355,7 +3339,7 @@ function rankingView(){
         ranked.forEach((p,i) => {
           const r = ranks[i];
           html += '<div class="rank-row'+(r.rank===1?' top1':'')+'"><span class="rank-num'+(r.tied?' tied':'')+'">'+rankLabel(r)+'</span>';
-          html += '<span class="rank-name clickable" onclick="openPlayerProfile(\''+p.key+'\')">'+esc(p.name)+'</span>';
+          html += '<span class="rank-name clickable" onclick="openPlayerProfile(\''+p.key+'\')">'+esc(p.name)+'</span>'+provTag(p.key);
           html += arrow(mvWin, p.key);
           html += '<span class="rank-elo">'+Math.round(winRate(p)*100)+'%</span>';
           html += '<span class="rank-meta">'+fmtWins(p.wins)+' / '+p.matches+'</span></div>';
@@ -3392,7 +3376,7 @@ function rankingView(){
       const wr = winRate(p);
       const r = ranks[i];
       html += '<div class="rank-row'+(r.rank===1?' top1':'')+'"><span class="rank-num'+(r.tied?' tied':'')+'">'+rankLabel(r)+'</span>';
-      html += '<span class="rank-name clickable" onclick="openPlayerProfile(\''+p.key+'\')">'+esc(p.name)+'</span>';
+      html += '<span class="rank-name clickable" onclick="openPlayerProfile(\''+p.key+'\')">'+esc(p.name)+'</span>'+provTag(p.key);
       html += arrow(mvElo, p.key);
       html += '<span class="rank-elo">'+Math.round(p.elo||START_ELO)+'</span>';
       html += '<span class="rank-meta">'+(wr===null?'—':Math.round(wr*100)+'% · '+p.matches)+'</span></div>';
@@ -3424,9 +3408,9 @@ function renderMain(){
   document.getElementById('foot').textContent = (!showRanking && !showTeamRanking && !showArchive && t.phase==='playing') ? ((t.mode && t.mode!=='fixed' ? t.players.length+' giocatori · '+({americano:'Americano',messicano:'Messicano'}[t.mode]) : t.teams.length+' squadre')+' · '+t.courts+' campi · '+t.maxRounds+' turni') : '';
 
   let html = '<div class="btn-pair" style="margin-bottom:1.25rem;">';
-  html += '<button class="ghost" onclick="showDiag=false;showRanking=!showRanking;showTeamRanking=false;showArchive=false;render();">'+(showRanking ? 'Torna al torneo' : 'Classifica giocatori')+'</button>';
-  html += '<button class="ghost" onclick="showDiag=false;showTeamRanking=!showTeamRanking;showRanking=false;showArchive=false;render();">'+(showTeamRanking ? 'Torna al torneo' : 'Classifica squadre')+'</button>';
-  html += '<button class="ghost" onclick="showDiag=false;showArchive=!showArchive;showRanking=false;showTeamRanking=false;render();">'+(showArchive ? 'Torna al torneo' : 'Tornei passati')+'</button>';
+  html += '<button class="ghost'+(showRanking ? ' back-active' : '')+'" onclick="showDiag=false;showRanking=!showRanking;showTeamRanking=false;showArchive=false;render();">'+(showRanking ? 'Torna al torneo' : 'Classifica giocatori')+'</button>';
+  html += '<button class="ghost'+(showTeamRanking ? ' back-active' : '')+'" onclick="showDiag=false;showTeamRanking=!showTeamRanking;showRanking=false;showArchive=false;render();">'+(showTeamRanking ? 'Torna al torneo' : 'Classifica squadre')+'</button>';
+  html += '<button class="ghost'+(showArchive ? ' back-active' : '')+'" onclick="showDiag=false;showArchive=!showArchive;showRanking=false;showTeamRanking=false;render();">'+(showArchive ? 'Torna al torneo' : 'Tornei passati')+'</button>';
   html += '</div>';
 
   if(showDiag){
@@ -3621,6 +3605,11 @@ function renderMain(){
         html += '<input class="score-input" id="s2_'+idx+'" type="number" min="0" inputmode="numeric" value="'+esc(rd.s2||'')+'" oninput="setRoundScore('+idx+',\'s2\',this.value); toggleTbRow(\'s1_'+idx+'\',\'s2_'+idx+'\',\'tbrow_'+idx+'\')" />';
         html += '<span class="team-name right">'+nameB+'</span></div>';
         html += '<div class="tb-row" id="tbrow_'+idx+'" style="'+(tbOpen?'':'display:none;')+'"><span class="tb-label">Tie-break</span><input class="score-input tb-input" id="tb1_'+idx+'" type="number" min="0" inputmode="numeric" value="'+esc(rd.tb1||'')+'" oninput="setRoundScore('+idx+',\'tb1\',this.value)" /><span class="dash">&ndash;</span><input class="score-input tb-input" id="tb2_'+idx+'" type="number" min="0" inputmode="numeric" value="'+esc(rd.tb2||'')+'" oninput="setRoundScore('+idx+',\'tb2\',this.value)" /></div>';
+        if(!rotating){
+          html += '<div class="swap-row"><span>Lati invertiti (Sx/Dx):</span>'
+            + '<label><input type="checkbox" style="width:18px;height:18px;accent-color:var(--ball);flex-shrink:0;" '+(rd.swA?'checked':'')+' onchange="setRoundSwap('+idx+',\'A\',this.checked)" /> '+esc(nameA)+'</label>'
+            + '<label><input type="checkbox" style="width:18px;height:18px;accent-color:var(--ball);flex-shrink:0;" '+(rd.swB?'checked':'')+' onchange="setRoundSwap('+idx+',\'B\',this.checked)" /> '+esc(nameB)+'</label></div>';
+        }
         html += strengthRowHtml(courtStrengths, idx);
         html += '</div>';
       });
@@ -3670,7 +3659,7 @@ function renderMain(){
       html += '<section>';
       [...t.history].reverse().forEach(h => {
         html += '<div class="history-round"><p class="section-label">Turno '+h.round+'</p>';
-        h.matches.forEach(m => { html += '<div class="history-match"><span><b>'+m.a+'</b> vs <b>'+m.b+'</b></span><span>'+m.s1+' &ndash; '+m.s2+(m.tb?' <span class="tb-inline">(tb '+m.tb[0]+'-'+m.tb[1]+')</span>':'')+'</span></div>'; });
+        h.matches.forEach(m => { html += '<div class="history-match"><span><b>'+m.a+'</b> vs <b>'+m.b+'</b></span><span>'+m.s1+' &ndash; '+m.s2+(m.tb?' <span class="tb-inline">(tb '+m.tb[0]+'-'+m.tb[1]+')</span>':'')+upsetTag(m)+'</span></div>'; });
         html += '</div>';
       });
       html += '</section>';
@@ -3711,6 +3700,22 @@ let navIdx = 0;          // posizione corrente nella cronologia del browser (0 =
 let navIgnore = 0;       // popstate provocati da noi (riallineamenti), da non interpretare come "indietro" dell'utente
 let navBusy = false;
 let navReady = false;
+let navExitArmed = false;
+let navExitTimer = null;
+function showToast(msg){ const el = document.getElementById('toast'); if(!el) return; el.textContent = msg; el.style.display = 'block'; }
+function hideToast(){ const el = document.getElementById('toast'); if(el) el.style.display = 'none'; }
+function navExitDisarm(){
+  clearTimeout(navExitTimer);
+  if(!navExitArmed) return;
+  navExitArmed = false;
+  hideToast();
+  if(navReady && navIdx === 0){
+    navIdx = 1;
+    navIgnore = 1;
+    try{ history.go(1); }catch(e){ navIgnore = 0; }
+    setTimeout(() => { if(navIgnore > 0){ navIgnore = 0; syncNav(); } }, 800);
+  }
+}
 function navLayers(){
   const L = [];
   if(pairEdit) L.push('pairedit');
@@ -3752,6 +3757,7 @@ function syncNav(){
   const want = navLayers().length + 1;
   try{
     if(want > navIdx){
+      if(navExitArmed){ navExitArmed = false; clearTimeout(navExitTimer); hideToast(); }   // l'utente ha fatto altro: l'avviso di uscita decade
       while(navIdx < want){ navIdx++; history.pushState({ padel:1, nav:navIdx }, ''); }
     } else if(want < navIdx){
       const d = navIdx - want;
@@ -3774,30 +3780,6 @@ function navArm(){
   }catch(e){ navReady = false; }
 }
 document.addEventListener('pointerdown', navArm, { passive:true });
-// Doppio indietro per uscire (come molte app Android):
-// - primo indietro dalla root → annulla l'uscita (pushState) + messaggio 2 s
-// - secondo entro 2 s → NON fare pushState, lascia andare indietro il sistema
-// - dopo 2 s il flag si azzera: il prossimo indietro è di nuovo "primo"
-let exitArmed = false;
-let exitTimer = null;
-function clearExitArm(){
-  exitArmed = false;
-  if(exitTimer){ clearTimeout(exitTimer); exitTimer = null; }
-}
-function armExitPrompt(){
-  clearExitArm();
-  exitArmed = true;
-  dataMsg = 'Premi di nuovo indietro per uscire';
-  render();
-  exitTimer = setTimeout(function(){
-    exitTimer = null;
-    exitArmed = false;
-    if(dataMsg === 'Premi di nuovo indietro per uscire'){
-      dataMsg = '';
-      try { render(); } catch(err) {}
-    }
-  }, 2000);
-}
 window.addEventListener('popstate', function(e){
   if(!navReady) return;
   if(navIgnore > 0){
@@ -3811,27 +3793,17 @@ window.addEventListener('popstate', function(e){
   navIdx = st.nav;
   navBusy = true;
   if(navIdx === 0){
+    // Siamo sulla voce "sentinella": una web app non può chiudersi da sola, ma la pressione successiva di indietro
+    // esce davvero. Quindi niente finestra di conferma: si avvisa, e se non succede nulla si torna sul torneo.
     navCloseAll();
-    if(exitArmed){
-      // Secondo indietro entro 2 s: siamo già sulla sentinella → esci senza ripush
-      clearExitArm();
-      navReady = false;
-      navBusy = false;
-      dataMsg = '';
-      try { history.back(); } catch(err) {}
-      try { window.close(); } catch(err) {}
-      return;
-    }
-    // Primo indietro (o dopo che i 2 s sono scaduti): resta nell'app
-    navIdx = 1;
-    try { history.pushState({ padel:1, nav:1 }, ''); } catch(err) {}
+    render();                      // con navBusy attivo syncNav resta in pausa
     navBusy = false;
-    armExitPrompt();
+    navExitArmed = true;
+    showToast('Premi di nuovo indietro per uscire');
+    clearTimeout(navExitTimer);
+    navExitTimer = setTimeout(navExitDisarm, 2000);
     return;
   }
-  // Indietro su un livello interno: annulla eventuale "esci" in sospeso
-  clearExitArm();
-  if(dataMsg === 'Premi di nuovo indietro per uscire') dataMsg = '';
   const target = navIdx - 1;
   let guard = 12;
   while(navLayers().length > target && guard-- > 0) navCloseTop();
