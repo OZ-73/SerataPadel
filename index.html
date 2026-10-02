@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v30">
+<meta name="app-version" content="v31">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1317,68 +1317,112 @@ function timestampForFilename(){
   const p = n => String(n).padStart(2,'0');
   return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'_'+p(d.getHours())+p(d.getMinutes());
 }
-async function buildBackupBlob(){
+function buildBackupPayload(){
+  return {
+    version: 1,
+    app: 'torneo-padel',
+    exportedAt: new Date().toISOString(),
+    roster: roster,
+    tournament: t,
+    archive: archive
+  };
+}
+async function buildBackupZipBlob(){
   const zip = new JSZip();
   zip.file('roster.json', JSON.stringify(roster, null, 2));
   zip.file('tournament.json', JSON.stringify(t, null, 2));
   zip.file('archive.json', JSON.stringify(archive, null, 2));
+  // Anche un unico JSON dentro lo zip (compatibilità futura)
+  zip.file('backup.json', JSON.stringify(buildBackupPayload(), null, 2));
   return zip.generateAsync({type:'blob'});
 }
-// Backup in un tocco: apre il menu di condivisione del telefono con il file zip già allegato
-// (WhatsApp, mail, Drive…). Dove non è disponibile, ripiega sul normale scaricamento.
+function buildBackupJsonBlob(){
+  const json = JSON.stringify(buildBackupPayload(), null, 2);
+  return new Blob([json], { type: 'application/json' });
+}
+function applyImportedData(data){
+  // data: { roster?, tournament?, archive? } oppure payload unificato
+  const r = data.roster !== undefined ? data.roster : (data.version ? data.roster : null);
+  const tm = data.tournament !== undefined ? data.tournament : null;
+  const a = data.archive !== undefined ? data.archive : null;
+  let any = false;
+  if(r != null){ roster = normalizeRoster(r); saveRoster(); any = true; }
+  if(tm != null){ t = normalizeTournament(tm); saveTournament(); extraDraft = null; roundDraft = {}; pairEdit = null; any = true; }
+  if(a != null){ archive = normalizeArchive(a); any = true; }
+  if(!any) return false;
+  ensureArchiveIds();
+  recomputeRatings();
+  if(r != null) saveRoster();
+  if(a != null) saveArchive();
+  ratingMigration = false;
+  return true;
+}
+// Backup in un tocco: apre il menu di condivisione del telefono.
+// Su Android Chrome i ZIP non sono tra i tipi condividibili (solo testo/immagini/pdf…):
+// quindi condividiamo un .json (text/plain o application/json). Lo ZIP resta per "Scarica".
 async function shareBackup(){
-  // Non chiamare render() prima di navigator.share: dopo un await la user activation
-  // (gesto utente) scade su Safari/iOS e la condivisione di file viene bloccata.
-  // Proviamo più tipi MIME perché application/zip spesso fa fallire canShare su iOS.
+  // Importante: il File JSON è sincrono → navigator.share resta nel gesto utente.
+  // Su Android Chrome i ZIP non sono condividibili; usiamo .json (text/plain).
   try{
-    if(typeof JSZip === 'undefined'){
-      dataMsg = 'Libreria di esportazione non caricata (controlla la connessione e riprova).';
-      render();
-      return;
-    }
-    const blob = await buildBackupBlob();
-    const fname = 'torneo-padel-backup-'+timestampForFilename()+'.zip';
-    const candidates = [
-      new File([blob], fname, { type: 'application/zip' }),
-      new File([blob], fname, { type: 'application/octet-stream' }),
-      new File([blob], fname, { type: '' })
+    const ts = timestampForFilename();
+    const jsonBlob = buildBackupJsonBlob();
+    const jsonName = 'torneo-padel-backup-'+ts+'.json';
+    const jsonFiles = [
+      new File([jsonBlob], jsonName, { type: 'text/plain' }),
+      new File([jsonBlob], jsonName, { type: 'application/json' }),
+      new File([jsonBlob], jsonName, { type: 'text/json' })
     ];
-    if(navigator.share){
-      for(const file of candidates){
+    async function tryShareFile(file){
+      const payloads = [
+        { files: [file] },
+        { files: [file], title: 'Backup Torneo Padel', text: 'Backup Torneo Padel' }
+      ];
+      for(const data of payloads){
         let can = true;
         try{
-          if(typeof navigator.canShare === 'function'){
-            can = navigator.canShare({ files: [file] });
-          }
+          if(typeof navigator.canShare === 'function') can = navigator.canShare(data);
         }catch(e){ can = true; }
         if(!can) continue;
         try{
-          await navigator.share({
-            files: [file],
-            title: 'Backup Torneo Padel',
-            text: 'Backup Torneo Padel'
-          });
-          markBackup();
-          dataMsg = 'Backup condiviso.';
-          render();
-          return;
+          await navigator.share(data);
+          return 'ok';
         }catch(err){
-          if(err && err.name === 'AbortError'){
-            dataMsg = 'Condivisione annullata: il backup non è stato salvato.';
-            render();
-            return;
-          }
-          // altro errore: prova il MIME successivo
+          if(err && err.name === 'AbortError') return 'abort';
         }
       }
+      return 'fail';
     }
-    // Fallback: download (o dialog di salvataggio su desktop)
-    const ok = await saveFile(fname, blob);
+    if(navigator.share){
+      for(const file of jsonFiles){
+        const r = await tryShareFile(file);
+        if(r === 'ok'){ markBackup(); dataMsg = 'Backup condiviso.'; render(); return; }
+        if(r === 'abort'){ dataMsg = 'Condivisione annullata: il backup non è stato salvato.'; render(); return; }
+      }
+      // Solo se JSON non è accettato, prova ZIP (raro su Android; utile altrove)
+      if(typeof JSZip !== 'undefined'){
+        try{
+          const zipBlob = await buildBackupZipBlob();
+          const zipName = 'torneo-padel-backup-'+ts+'.zip';
+          for(const type of ['application/zip', 'application/octet-stream']){
+            const r = await tryShareFile(new File([zipBlob], zipName, { type: type }));
+            if(r === 'ok'){ markBackup(); dataMsg = 'Backup condiviso.'; render(); return; }
+            if(r === 'abort'){ dataMsg = 'Condivisione annullata: il backup non è stato salvato.'; render(); return; }
+          }
+        }catch(e){ /* ignore */ }
+      }
+    }
+    // Fallback download: preferisci ZIP se disponibile, altrimenti JSON
+    let fallBlob = jsonBlob, fallName = jsonName;
+    if(typeof JSZip !== 'undefined'){
+      try{
+        fallBlob = await buildBackupZipBlob();
+        fallName = 'torneo-padel-backup-'+ts+'.zip';
+      }catch(e){}
+    }
+    const ok = await saveFile(fallName, fallBlob);
     if(ok) markBackup();
     dataMsg = ok
-      ? (navigator.share
-          ? 'Condivisione file non supportata qui: backup scaricato.'
-          : 'Backup scaricato.')
+      ? (navigator.share ? 'Condivisione file non riuscita: backup scaricato.' : 'Backup scaricato.')
       : 'Backup non riuscito.';
   }catch(e){
     dataMsg = 'Backup non riuscito'+(e && e.message ? ': '+e.message : '')+'.';
@@ -1390,8 +1434,16 @@ async function exportData(){
   dataMsg = 'Preparazione backup…';
   render();
   try{
-    if(typeof JSZip === 'undefined'){ dataMsg = 'Libreria di esportazione non caricata (controlla la connessione e riprova).'; render(); return; }
-    const blob = await buildBackupBlob();
+    if(typeof JSZip === 'undefined'){
+      // Senza JSZip scarica comunque il JSON
+      const blob = buildBackupJsonBlob();
+      const ok = await saveFile('torneo-padel-backup-'+timestampForFilename()+'.json', blob);
+      if(ok) markBackup();
+      dataMsg = ok ? 'Backup salvato (.json).' : 'Esportazione annullata o non riuscita.';
+      render();
+      return;
+    }
+    const blob = await buildBackupZipBlob();
     const ok = await saveFile('torneo-padel-backup-'+timestampForFilename()+'.zip', blob);
     if(ok) markBackup();
     dataMsg = ok ? 'Backup salvato.' : 'Esportazione annullata o non riuscita.';
@@ -1405,33 +1457,60 @@ function triggerImport(){ const el = document.getElementById('importFile'); if(e
 
 function handleImportFile(file){
   if(!file){ dataMsg = 'Nessun file selezionato.'; render(); return; }
-  if(typeof JSZip === 'undefined'){ dataMsg = 'Libreria di importazione non caricata.'; render(); return; }
   dataMsg = 'Importazione in corso…';
   render();
+  const name = (file.name || '').toLowerCase();
   const reader = new FileReader();
+  reader.onerror = function(){ dataMsg = 'Lettura del file non riuscita.'; render(); };
+
+  // JSON singolo (condivisione Android) o testo
+  if(name.endsWith('.json') || name.endsWith('.txt') || (file.type && (file.type.indexOf('json') >= 0 || file.type.indexOf('text') === 0))){
+    reader.onload = function(e){
+      try{
+        const data = JSON.parse(typeof e.target.result === 'string' ? e.target.result : new TextDecoder().decode(e.target.result));
+        if(!applyImportedData(data)){
+          dataMsg = 'Il file non contiene dati riconoscibili.';
+        } else {
+          dataMsg = 'Dati importati.';
+        }
+      }catch(err){
+        dataMsg = 'File non valido'+(err && err.message ? ': '+err.message : '')+'.';
+      }
+      render();
+    };
+    reader.readAsText(file);
+    return;
+  }
+
+  // ZIP (e fallback generico)
+  if(typeof JSZip === 'undefined'){ dataMsg = 'Libreria di importazione non caricata.'; render(); return; }
   reader.onload = async function(e){
     try{
       const zip = await JSZip.loadAsync(e.target.result);
+      // Preferisci backup.json unificato se presente
+      const unified = zip.file('backup.json');
+      if(unified){
+        const data = JSON.parse(await unified.async('string'));
+        if(!applyImportedData(data)){ dataMsg = 'Il file non contiene dati riconoscibili.'; render(); return; }
+        dataMsg = 'Dati importati.';
+        render();
+        return;
+      }
       const rf = zip.file('roster.json');
       const tf = zip.file('tournament.json');
       const af = zip.file('archive.json');
       if(!rf && !tf && !af){ dataMsg = 'Il file non contiene dati riconoscibili.'; render(); return; }
-      if(rf){ roster = normalizeRoster(JSON.parse(await rf.async('string'))); saveRoster(); }
-      if(tf){ t = normalizeTournament(JSON.parse(await tf.async('string'))); saveTournament(); extraDraft = null; roundDraft = {}; pairEdit = null; }
-      if(af){ archive = normalizeArchive(JSON.parse(await af.async('string'))); }
-      // Id nascosti e rating ricalcolati dall'archivio (anche per backup di versioni precedenti).
-      ensureArchiveIds();
-      recomputeRatings();
-      if(rf) saveRoster();
-      if(af) saveArchive();
-      ratingMigration = false;
+      const pack = {};
+      if(rf) pack.roster = JSON.parse(await rf.async('string'));
+      if(tf) pack.tournament = JSON.parse(await tf.async('string'));
+      if(af) pack.archive = JSON.parse(await af.async('string'));
+      applyImportedData(pack);
       dataMsg = 'Dati importati.';
     }catch(err){
       dataMsg = 'File non valido'+(err && err.message ? ': '+err.message : '')+'.';
     }
     render();
   };
-  reader.onerror = function(){ dataMsg = 'Lettura del file non riuscita.'; render(); };
   reader.readAsArrayBuffer(file);
 }
 
@@ -1458,7 +1537,7 @@ function dataSection(){
   html += '<div class="data-row"><button class="ghost" onclick="shareBackup()">Condividi backup</button>';
   html += '<button class="ghost" onclick="exportData()">Scarica (.zip)</button></div>';
   html += '<div class="data-row"><label class="ghost" for="importFile" style="cursor:pointer;">Importa backup</label></div>';
-  html += '<input type="file" id="importFile" accept=".zip" onchange="handleImportFile(this.files[0])" />';
+  html += '<input type="file" id="importFile" accept=".zip,.json,application/json,text/plain,text/json" onchange="handleImportFile(this.files[0])" />';
   html += '<p class="hint" style="margin-top:8px;">Tornei archiviati: '+archive.length+' (ultimi '+ARCHIVE_MAX+')'+(getLastBackup() ? ' · ultimo backup: '+new Date(getLastBackup()).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : ' · nessun backup ancora')+(storagePersisted === true ? ' · memoria dell\'app protetta dal telefono' : (storagePersisted === false ? ' · memoria non protetta: fai il backup spesso' : ''))+'</p>';
   if(dataMsg){ html += '<p class="hint" style="margin-top:8px;">'+dataMsg+'</p>'; }
   html += '</section>';
