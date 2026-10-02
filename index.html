@@ -3774,6 +3774,23 @@ function navArm(){
   }catch(e){ navReady = false; }
 }
 document.addEventListener('pointerdown', navArm, { passive:true });
+// Doppio indietro per uscire (come molte app Android): primo indietro dalla
+// root → toast "premi di nuovo"; secondo entro 2 s → lascia uscire il sistema.
+let exitArmedUntil = 0;
+function armExitPrompt(){
+  exitArmedUntil = Date.now() + 2000;
+  dataMsg = 'Premi di nuovo indietro per uscire';
+  render();
+  setTimeout(function(){
+    if(Date.now() >= exitArmedUntil){
+      // Pulisci il messaggio solo se non è stato sovrascritto nel frattempo
+      if(dataMsg === 'Premi di nuovo indietro per uscire'){
+        dataMsg = '';
+        try { render(); } catch(err) {}
+      }
+    }
+  }, 2100);
+}
 window.addEventListener('popstate', function(e){
   if(!navReady) return;
   if(navIgnore > 0){
@@ -3787,39 +3804,34 @@ window.addEventListener('popstate', function(e){
   navIdx = st.nav;
   navBusy = true;
   if(navIdx === 0){
-    // Arrivati sulla sentinella: ripristina subito una voce "torneo" (così Annulla
-    // non richiede history.go) e chiedi conferma.
-    // Su PWA Android standalone window.close()/history.go(-N) spesso NON chiudono
-    // l'app: dopo OK disattiviamo il trap e facciamo due history.back() ravvicinati
-    // (voce ripristinata → sentinella → fuori). Se il sistema non esce, il prossimo
-    // indietro chiude senza ridomandare.
     navCloseAll();
+    // Sempre ripristina la voce torneo: restiamo nell'app finché non è un
+    // secondo indietro entro 2 secondi.
     navIdx = 1;
     try { history.pushState({ padel:1, nav:1 }, ''); } catch(err) {}
-    render();
-    if(confirm('Vuoi uscire dall\'app?')){
+    const now = Date.now();
+    if(now < exitArmedUntil){
+      // Secondo indietro entro la finestra: disattiva trap e esci
+      exitArmedUntil = 0;
       navReady = false;
       navBusy = false;
+      dataMsg = '';
       try { history.replaceState(null, '', location.href); } catch(err) {}
-      // Due passi indietro: toglie la voce corrente e prova a uscire dalla sentinella
       try { history.back(); } catch(err) {}
       setTimeout(function(){
         try { history.back(); } catch(err) {}
         try { window.close(); } catch(err) {}
-        // Se siamo ancora qui, il trap è già off: un altro indietro esce senza dialog
-        setTimeout(function(){
-          try{
-            dataMsg = 'Premi di nuovo indietro per chiudere l\'app.';
-            render();
-          }catch(err){}
-        }, 250);
-      }, 60);
-    } else {
-      navBusy = false;
-      try { syncNav(); } catch(err) {}
+      }, 50);
+      return;
     }
+    // Primo indietro (o secondo troppo tardi): resta nell'app e arma il timer
+    navBusy = false;
+    armExitPrompt();
+    try { syncNav(); } catch(err) {}
     return;
   }
+  // Indietro su un livello interno: resetta eventuale "esci" in sospeso
+  exitArmedUntil = 0;
   const target = navIdx - 1;
   let guard = 12;
   while(navLayers().length > target && guard-- > 0) navCloseTop();
