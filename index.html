@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v31">
+<meta name="app-version" content="v32">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1361,69 +1361,90 @@ function applyImportedData(data){
 // Su Android Chrome i ZIP non sono tra i tipi condividibili (solo testo/immagini/pdf…):
 // quindi condividiamo un .json (text/plain o application/json). Lo ZIP resta per "Scarica".
 async function shareBackup(){
-  // Importante: il File JSON è sincrono → navigator.share resta nel gesto utente.
-  // Su Android Chrome i ZIP non sono condividibili; usiamo .json (text/plain).
+  // Percorso minimalista per Android:
+  // 1) File .txt text/plain (tra i pochi MIME accettati dal foglio Condividi)
+  // 2) share SUBITO, senza await prima e senza filtrare troppo con canShare
+  // 3) se fallisce: messaggio con errore reale + download di emergenza
+  const ts = timestampForFilename();
+  let lastErr = '';
   try{
-    const ts = timestampForFilename();
-    const jsonBlob = buildBackupJsonBlob();
-    const jsonName = 'torneo-padel-backup-'+ts+'.json';
-    const jsonFiles = [
-      new File([jsonBlob], jsonName, { type: 'text/plain' }),
-      new File([jsonBlob], jsonName, { type: 'application/json' }),
-      new File([jsonBlob], jsonName, { type: 'text/json' })
-    ];
-    async function tryShareFile(file){
-      const payloads = [
-        { files: [file] },
-        { files: [file], title: 'Backup Torneo Padel', text: 'Backup Torneo Padel' }
-      ];
-      for(const data of payloads){
-        let can = true;
+    // JSON compatto = più piccolo e più veloce da creare (niente await)
+    const jsonStr = JSON.stringify(buildBackupPayload());
+    const bytes = jsonStr.length;
+    const blob = new Blob([jsonStr], { type: 'text/plain' });
+    // Estensione .txt: su Android allinea MIME e nome file (canShare è più permissivo)
+    const fname = 'torneo-padel-backup-'+ts+'.txt';
+    const file = new File([blob], fname, { type: 'text/plain', lastModified: Date.now() });
+
+    if(typeof navigator.share === 'function'){
+      // A) solo file (spesso il più affidabile su Android)
+      try{
+        // Non bloccare se canShare manca o restituisce false: su alcuni device è bugiardo
+        let blocked = false;
         try{
-          if(typeof navigator.canShare === 'function') can = navigator.canShare(data);
-        }catch(e){ can = true; }
-        if(!can) continue;
+          if(typeof navigator.canShare === 'function' && !navigator.canShare({ files: [file] })){
+            blocked = true;
+          }
+        }catch(e){ blocked = false; }
+        if(!blocked){
+          await navigator.share({ files: [file] });
+          markBackup();
+          dataMsg = 'Backup condiviso ('+Math.max(1, Math.round(bytes/1024))+' KB).';
+          render();
+          return;
+        }
+      }catch(err){
+        if(err && err.name === 'AbortError'){
+          dataMsg = 'Condivisione annullata: il backup non è stato salvato.';
+          render();
+          return;
+        }
+        lastErr = (err && (err.name || '') + (err.message ? ': '+err.message : '')) || String(err);
+      }
+
+      // B) file + titolo (alcuni launcher Android lo preferiscono)
+      try{
+        await navigator.share({ files: [file], title: 'Backup Torneo Padel', text: 'Backup Torneo Padel' });
+        markBackup();
+        dataMsg = 'Backup condiviso ('+Math.max(1, Math.round(bytes/1024))+' KB).';
+        render();
+        return;
+      }catch(err){
+        if(err && err.name === 'AbortError'){
+          dataMsg = 'Condivisione annullata: il backup non è stato salvato.';
+          render();
+          return;
+        }
+        lastErr = (err && (err.name || '') + (err.message ? ': '+err.message : '')) || String(err);
+      }
+
+      // C) come testo puro se il backup è piccolo (< 50 KB): WhatsApp/SMS accettano text
+      if(bytes < 50000){
         try{
-          await navigator.share(data);
-          return 'ok';
+          await navigator.share({ title: 'Backup Torneo Padel', text: jsonStr });
+          markBackup();
+          dataMsg = 'Backup condiviso come testo.';
+          render();
+          return;
         }catch(err){
-          if(err && err.name === 'AbortError') return 'abort';
+          if(err && err.name === 'AbortError'){
+            dataMsg = 'Condivisione annullata: il backup non è stato salvato.';
+            render();
+            return;
+          }
+          lastErr = (err && (err.name || '') + (err.message ? ': '+err.message : '')) || String(err);
         }
       }
-      return 'fail';
+    } else {
+      lastErr = 'navigator.share assente';
     }
-    if(navigator.share){
-      for(const file of jsonFiles){
-        const r = await tryShareFile(file);
-        if(r === 'ok'){ markBackup(); dataMsg = 'Backup condiviso.'; render(); return; }
-        if(r === 'abort'){ dataMsg = 'Condivisione annullata: il backup non è stato salvato.'; render(); return; }
-      }
-      // Solo se JSON non è accettato, prova ZIP (raro su Android; utile altrove)
-      if(typeof JSZip !== 'undefined'){
-        try{
-          const zipBlob = await buildBackupZipBlob();
-          const zipName = 'torneo-padel-backup-'+ts+'.zip';
-          for(const type of ['application/zip', 'application/octet-stream']){
-            const r = await tryShareFile(new File([zipBlob], zipName, { type: type }));
-            if(r === 'ok'){ markBackup(); dataMsg = 'Backup condiviso.'; render(); return; }
-            if(r === 'abort'){ dataMsg = 'Condivisione annullata: il backup non è stato salvato.'; render(); return; }
-          }
-        }catch(e){ /* ignore */ }
-      }
-    }
-    // Fallback download: preferisci ZIP se disponibile, altrimenti JSON
-    let fallBlob = jsonBlob, fallName = jsonName;
-    if(typeof JSZip !== 'undefined'){
-      try{
-        fallBlob = await buildBackupZipBlob();
-        fallName = 'torneo-padel-backup-'+ts+'.zip';
-      }catch(e){}
-    }
-    const ok = await saveFile(fallName, fallBlob);
+
+    // Fallback: download .txt (sempre leggibile / importabile)
+    const ok = await saveFile(fname, blob);
     if(ok) markBackup();
     dataMsg = ok
-      ? (navigator.share ? 'Condivisione file non riuscita: backup scaricato.' : 'Backup scaricato.')
-      : 'Backup non riuscito.';
+      ? ('Condivisione non riuscita'+(lastErr ? ' ('+lastErr+')' : '')+': file scaricato ('+Math.max(1, Math.round(bytes/1024))+' KB).')
+      : ('Backup non riuscito'+(lastErr ? ': '+lastErr : '')+'.');
   }catch(e){
     dataMsg = 'Backup non riuscito'+(e && e.message ? ': '+e.message : '')+'.';
   }
@@ -1537,7 +1558,7 @@ function dataSection(){
   html += '<div class="data-row"><button class="ghost" onclick="shareBackup()">Condividi backup</button>';
   html += '<button class="ghost" onclick="exportData()">Scarica (.zip)</button></div>';
   html += '<div class="data-row"><label class="ghost" for="importFile" style="cursor:pointer;">Importa backup</label></div>';
-  html += '<input type="file" id="importFile" accept=".zip,.json,application/json,text/plain,text/json" onchange="handleImportFile(this.files[0])" />';
+  html += '<input type="file" id="importFile" accept=".zip,.json,.txt,application/json,text/plain,text/json" onchange="handleImportFile(this.files[0])" />';
   html += '<p class="hint" style="margin-top:8px;">Tornei archiviati: '+archive.length+' (ultimi '+ARCHIVE_MAX+')'+(getLastBackup() ? ' · ultimo backup: '+new Date(getLastBackup()).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : ' · nessun backup ancora')+(storagePersisted === true ? ' · memoria dell\'app protetta dal telefono' : (storagePersisted === false ? ' · memoria non protetta: fai il backup spesso' : ''))+'</p>';
   if(dataMsg){ html += '<p class="hint" style="margin-top:8px;">'+dataMsg+'</p>'; }
   html += '</section>';
