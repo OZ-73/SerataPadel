@@ -3774,22 +3774,29 @@ function navArm(){
   }catch(e){ navReady = false; }
 }
 document.addEventListener('pointerdown', navArm, { passive:true });
-// Doppio indietro per uscire (come molte app Android): primo indietro dalla
-// root → toast "premi di nuovo"; secondo entro 2 s → lascia uscire il sistema.
-let exitArmedUntil = 0;
+// Doppio indietro per uscire (come molte app Android):
+// - primo indietro dalla root → annulla l'uscita (pushState) + messaggio 2 s
+// - secondo entro 2 s → NON fare pushState, lascia andare indietro il sistema
+// - dopo 2 s il flag si azzera: il prossimo indietro è di nuovo "primo"
+let exitArmed = false;
+let exitTimer = null;
+function clearExitArm(){
+  exitArmed = false;
+  if(exitTimer){ clearTimeout(exitTimer); exitTimer = null; }
+}
 function armExitPrompt(){
-  exitArmedUntil = Date.now() + 2000;
+  clearExitArm();
+  exitArmed = true;
   dataMsg = 'Premi di nuovo indietro per uscire';
   render();
-  setTimeout(function(){
-    if(Date.now() >= exitArmedUntil){
-      // Pulisci il messaggio solo se non è stato sovrascritto nel frattempo
-      if(dataMsg === 'Premi di nuovo indietro per uscire'){
-        dataMsg = '';
-        try { render(); } catch(err) {}
-      }
+  exitTimer = setTimeout(function(){
+    exitTimer = null;
+    exitArmed = false;
+    if(dataMsg === 'Premi di nuovo indietro per uscire'){
+      dataMsg = '';
+      try { render(); } catch(err) {}
     }
-  }, 2100);
+  }, 2000);
 }
 window.addEventListener('popstate', function(e){
   if(!navReady) return;
@@ -3805,33 +3812,26 @@ window.addEventListener('popstate', function(e){
   navBusy = true;
   if(navIdx === 0){
     navCloseAll();
-    // Sempre ripristina la voce torneo: restiamo nell'app finché non è un
-    // secondo indietro entro 2 secondi.
-    navIdx = 1;
-    try { history.pushState({ padel:1, nav:1 }, ''); } catch(err) {}
-    const now = Date.now();
-    if(now < exitArmedUntil){
-      // Secondo indietro entro la finestra: disattiva trap e esci
-      exitArmedUntil = 0;
+    if(exitArmed){
+      // Secondo indietro entro 2 s: siamo già sulla sentinella → esci senza ripush
+      clearExitArm();
       navReady = false;
       navBusy = false;
       dataMsg = '';
-      try { history.replaceState(null, '', location.href); } catch(err) {}
       try { history.back(); } catch(err) {}
-      setTimeout(function(){
-        try { history.back(); } catch(err) {}
-        try { window.close(); } catch(err) {}
-      }, 50);
+      try { window.close(); } catch(err) {}
       return;
     }
-    // Primo indietro (o secondo troppo tardi): resta nell'app e arma il timer
+    // Primo indietro (o dopo che i 2 s sono scaduti): resta nell'app
+    navIdx = 1;
+    try { history.pushState({ padel:1, nav:1 }, ''); } catch(err) {}
     navBusy = false;
     armExitPrompt();
-    try { syncNav(); } catch(err) {}
     return;
   }
-  // Indietro su un livello interno: resetta eventuale "esci" in sospeso
-  exitArmedUntil = 0;
+  // Indietro su un livello interno: annulla eventuale "esci" in sospeso
+  clearExitArm();
+  if(dataMsg === 'Premi di nuovo indietro per uscire') dataMsg = '';
   const target = navIdx - 1;
   let guard = 12;
   while(navLayers().length > target && guard-- > 0) navCloseTop();
