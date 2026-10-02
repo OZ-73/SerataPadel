@@ -3787,23 +3787,35 @@ window.addEventListener('popstate', function(e){
   navIdx = st.nav;
   navBusy = true;
   if(navIdx === 0){
-    // Siamo sulla sentinella di uscita. Prima annulliamo l'indietro (ripush della
-    // voce "torneo"), poi chiediamo conferma: così
-    // - Annulla: siamo già sul torneo, nessun history.go extra
-    // - OK: history.go(-2) supera sia la voce appena pushata sia la sentinella
-    //   e lascia l'app in un solo passo (niente secondo "indietro")
+    // Arrivati sulla sentinella: ripristina subito una voce "torneo" (così Annulla
+    // non richiede history.go) e chiedi conferma.
+    // Su PWA Android standalone window.close()/history.go(-N) spesso NON chiudono
+    // l'app: dopo OK disattiviamo il trap e facciamo due history.back() ravvicinati
+    // (voce ripristinata → sentinella → fuori). Se il sistema non esce, il prossimo
+    // indietro chiude senza ridomandare.
     navCloseAll();
     navIdx = 1;
     try { history.pushState({ padel:1, nav:1 }, ''); } catch(err) {}
     render();
     if(confirm('Vuoi uscire dall\'app?')){
-      navReady = false;   // non intercettare più i popstate
+      navReady = false;
       navBusy = false;
-      try { history.go(-2); } catch(err) { try { history.back(); } catch(err2) {} }
-      try { window.close(); } catch(err) {}
+      try { history.replaceState(null, '', location.href); } catch(err) {}
+      // Due passi indietro: toglie la voce corrente e prova a uscire dalla sentinella
+      try { history.back(); } catch(err) {}
+      setTimeout(function(){
+        try { history.back(); } catch(err) {}
+        try { window.close(); } catch(err) {}
+        // Se siamo ancora qui, il trap è già off: un altro indietro esce senza dialog
+        setTimeout(function(){
+          try{
+            dataMsg = 'Premi di nuovo indietro per chiudere l\'app.';
+            render();
+          }catch(err){}
+        }, 250);
+      }, 60);
     } else {
       navBusy = false;
-      // già su nav:1 grazie al pushState
       try { syncNav(); } catch(err) {}
     }
     return;
