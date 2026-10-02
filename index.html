@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v27">
+<meta name="app-version" content="v30">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -152,6 +152,7 @@
   .history-match b{color:var(--ink);font-weight:500;}
 
   .data-row{display:flex;gap:8px;}
+  .data-row + .data-row{margin-top:10px;}
   .data-row button, .data-row label{flex:1;margin-top:0;}
   input[type=file]{display:none;}
 
@@ -1279,15 +1280,34 @@ async function saveFile(filename, blob){
       const downloads = await claude.use('downloads');
       if(downloads){ await downloads.save({ filename, data: blob }); return true; }
     }
-  }catch(e){ /* fall through to plain browser download */ }
+  }catch(e){ /* fall through */ }
+  // File System Access API (Chrome desktop / Edge)
+  try{
+    if(typeof window.showSaveFilePicker === 'function'){
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ description: 'Backup ZIP', accept: { 'application/zip': ['.zip'] } }]
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return true;
+    }
+  }catch(e){
+    if(e && e.name === 'AbortError') return false;
+    /* not supported or other error → fall through */
+  }
   try{
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = filename;
+    a.href = url;
+    a.download = filename;
+    a.rel = 'noopener';
+    a.style.display = 'none';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    setTimeout(()=>URL.revokeObjectURL(url), 2000);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
     return true;
   }catch(e2){ return false; }
 }
@@ -1307,32 +1327,59 @@ async function buildBackupBlob(){
 // Backup in un tocco: apre il menu di condivisione del telefono con il file zip già allegato
 // (WhatsApp, mail, Drive…). Dove non è disponibile, ripiega sul normale scaricamento.
 async function shareBackup(){
-  dataMsg = 'Preparazione backup…';
-  render();
+  // Non chiamare render() prima di navigator.share: dopo un await la user activation
+  // (gesto utente) scade su Safari/iOS e la condivisione di file viene bloccata.
+  // Proviamo più tipi MIME perché application/zip spesso fa fallire canShare su iOS.
   try{
-    if(typeof JSZip === 'undefined'){ dataMsg = 'Libreria di esportazione non caricata (controlla la connessione e riprova).'; render(); return; }
+    if(typeof JSZip === 'undefined'){
+      dataMsg = 'Libreria di esportazione non caricata (controlla la connessione e riprova).';
+      render();
+      return;
+    }
     const blob = await buildBackupBlob();
     const fname = 'torneo-padel-backup-'+timestampForFilename()+'.zip';
-    const file = new File([blob], fname, { type:'application/zip' });
-    if(navigator.share && navigator.canShare && navigator.canShare({ files:[file] })){
-      try{
-        await navigator.share({ files:[file], title:'Backup Torneo Padel', text:'Backup Torneo Padel' });
-        markBackup();
-        dataMsg = 'Backup condiviso.';
-      }catch(err){
-        if(err && err.name === 'AbortError'){
-          dataMsg = 'Condivisione annullata: il backup non è stato salvato.';
-        } else {
-          const ok = await saveFile(fname, blob);
-          if(ok) markBackup();
-          dataMsg = ok ? 'Condivisione non riuscita: backup scaricato come file.' : 'Backup non riuscito.';
+    const candidates = [
+      new File([blob], fname, { type: 'application/zip' }),
+      new File([blob], fname, { type: 'application/octet-stream' }),
+      new File([blob], fname, { type: '' })
+    ];
+    if(navigator.share){
+      for(const file of candidates){
+        let can = true;
+        try{
+          if(typeof navigator.canShare === 'function'){
+            can = navigator.canShare({ files: [file] });
+          }
+        }catch(e){ can = true; }
+        if(!can) continue;
+        try{
+          await navigator.share({
+            files: [file],
+            title: 'Backup Torneo Padel',
+            text: 'Backup Torneo Padel'
+          });
+          markBackup();
+          dataMsg = 'Backup condiviso.';
+          render();
+          return;
+        }catch(err){
+          if(err && err.name === 'AbortError'){
+            dataMsg = 'Condivisione annullata: il backup non è stato salvato.';
+            render();
+            return;
+          }
+          // altro errore: prova il MIME successivo
         }
       }
-    } else {
-      const ok = await saveFile(fname, blob);
-      if(ok) markBackup();
-      dataMsg = ok ? 'Condivisione di file non supportata qui: backup scaricato.' : 'Backup non riuscito.';
     }
+    // Fallback: download (o dialog di salvataggio su desktop)
+    const ok = await saveFile(fname, blob);
+    if(ok) markBackup();
+    dataMsg = ok
+      ? (navigator.share
+          ? 'Condivisione file non supportata qui: backup scaricato.'
+          : 'Backup scaricato.')
+      : 'Backup non riuscito.';
   }catch(e){
     dataMsg = 'Backup non riuscito'+(e && e.message ? ': '+e.message : '')+'.';
   }
@@ -1400,7 +1447,10 @@ function backupBanner(){
   if(archive.length === 0 || n === 0) return '';
   const lb = getLastBackup();
   const when = lb ? 'Ultimo backup: '+new Date(lb).toLocaleDateString('it-IT')+'.' : 'Non hai ancora fatto nessun backup.';
-  return '<div class="banner"><p style="margin:0 0 10px;"><b>Backup da aggiornare.</b> '+n+(n===1 ? ' torneo archiviato non è' : ' tornei archiviati non sono')+' ancora nel backup. '+when+' I dati vivono solo in questo browser.</p><button class="primary" onclick="exportData()">Scarica backup</button></div>';
+  const shareBtn = (typeof navigator !== 'undefined' && navigator.share)
+    ? '<button class="primary" onclick="shareBackup()">Condividi backup</button>'
+    : '<button class="primary" onclick="exportData()">Scarica backup</button>';
+  return '<div class="banner"><p style="margin:0 0 10px;"><b>Backup da aggiornare.</b> '+n+(n===1 ? ' torneo archiviato non è' : ' tornei archiviati non sono')+' ancora nel backup. '+when+' I dati vivono solo in questo browser.</p>'+shareBtn+'</div>';
 }
 
 function dataSection(){
@@ -3637,17 +3687,24 @@ window.addEventListener('popstate', function(e){
   navIdx = st.nav;
   navBusy = true;
   if(navIdx === 0){
+    // Siamo sulla sentinella di uscita. Prima annulliamo l'indietro (ripush della
+    // voce "torneo"), poi chiediamo conferma: così
+    // - Annulla: siamo già sul torneo, nessun history.go extra
+    // - OK: history.go(-2) supera sia la voce appena pushata sia la sentinella
+    //   e lascia l'app in un solo passo (niente secondo "indietro")
     navCloseAll();
-    render();                      // con navBusy attivo syncNav resta in pausa: non ricrea la voce mentre si decide
+    navIdx = 1;
+    try { history.pushState({ padel:1, nav:1 }, ''); } catch(err) {}
+    render();
     if(confirm('Vuoi uscire dall\'app?')){
+      navReady = false;   // non intercettare più i popstate
       navBusy = false;
-      history.back();              // esce (o torna alla pagina precedente nel browser)
+      try { history.go(-2); } catch(err) { try { history.back(); } catch(err2) {} }
+      try { window.close(); } catch(err) {}
     } else {
-      navIdx = 1;
-      navIgnore = 1;
       navBusy = false;
-      history.go(1);               // torna sul torneo
-      setTimeout(() => { if(navIgnore > 0){ navIgnore = 0; syncNav(); } }, 800);
+      // già su nav:1 grazie al pushState
+      try { syncNav(); } catch(err) {}
     }
     return;
   }
