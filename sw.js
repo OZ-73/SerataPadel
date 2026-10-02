@@ -3,7 +3,7 @@
 //   con ripiego sulla copia salvata se la rete manca o risponde troppo piano (3 s).
 // - tutto il resto (JSZip, font, icone): dalla copia salvata, aggiornata in sottofondo.
 // I dati dei tornei NON sono qui: stanno nel localStorage del telefono e questo file non li tocca.
-const CACHE_NAME = 'padel-v26';
+const CACHE_NAME = 'padel-v27';
 const PRECACHE = ['./', './index.html', './manifest.json', './jszip.min.js', './icon-192.png', './icon-512.png', './icon-maskable-512.png', './apple-touch-icon.png'];
 const NETWORK_TIMEOUT_MS = 3000;
 
@@ -26,7 +26,8 @@ function networkFirst(request){
     const timer = setTimeout(() => {
       fallback().then(r => { if(r && !settled){ settled = true; resolve(r); } });
     }, NETWORK_TIMEOUT_MS);
-    fetch(request).then(resp => {
+    // 'no-cache': rivalida sempre col server, così GitHub Pages non serve una index.html vecchia dalla cache HTTP del browser
+    fetch(request.url, { cache: 'no-cache', credentials: 'same-origin' }).then(resp => {
       clearTimeout(timer);
       if(resp && resp.ok){
         const copy = resp.clone();

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
+<meta name="app-version" content="v27">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -175,12 +176,15 @@
   .rank-name.clickable{cursor:pointer;text-decoration:underline;text-decoration-color:rgba(215,232,86,0.35);text-underline-offset:3px;}
 
 
+  #updateBar{display:none;position:sticky;top:0;z-index:60;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;padding:calc(8px + env(safe-area-inset-top,0px)) 12px 8px;background:var(--ball);color:#0B3D3A;font-family:var(--font-head);font-weight:600;font-size:14px;}
+  #updateBar button{background:#0B3D3A;color:var(--ball);border:0;}
   /* App installata (PWA): rispetta tacca e barra di sistema */
   body{padding-top:env(safe-area-inset-top,0px);padding-bottom:calc(3rem + env(safe-area-inset-bottom,0px));}
   #kioskOverlay{padding-top:calc(1.5rem + env(safe-area-inset-top,0px));padding-bottom:calc(1.5rem + env(safe-area-inset-bottom,0px));}
 </style>
 </head>
 <body>
+<div id="updateBar" role="status"></div>
 <div class="wrap">
   <header>
     <p class="kicker">Serata di padel</p>
@@ -190,6 +194,7 @@
   <div class="court-lines"></div>
   <div id="app"></div>
   <footer id="foot"></footer>
+  <p id="appver" class="hint" style="text-align:center;margin:1.5rem 0 0;opacity:.65;"></p>
 </div>
 
 <script>
@@ -1292,16 +1297,54 @@ function timestampForFilename(){
   const p = n => String(n).padStart(2,'0');
   return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'_'+p(d.getHours())+p(d.getMinutes());
 }
+async function buildBackupBlob(){
+  const zip = new JSZip();
+  zip.file('roster.json', JSON.stringify(roster, null, 2));
+  zip.file('tournament.json', JSON.stringify(t, null, 2));
+  zip.file('archive.json', JSON.stringify(archive, null, 2));
+  return zip.generateAsync({type:'blob'});
+}
+// Backup in un tocco: apre il menu di condivisione del telefono con il file zip già allegato
+// (WhatsApp, mail, Drive…). Dove non è disponibile, ripiega sul normale scaricamento.
+async function shareBackup(){
+  dataMsg = 'Preparazione backup…';
+  render();
+  try{
+    if(typeof JSZip === 'undefined'){ dataMsg = 'Libreria di esportazione non caricata (controlla la connessione e riprova).'; render(); return; }
+    const blob = await buildBackupBlob();
+    const fname = 'torneo-padel-backup-'+timestampForFilename()+'.zip';
+    const file = new File([blob], fname, { type:'application/zip' });
+    if(navigator.share && navigator.canShare && navigator.canShare({ files:[file] })){
+      try{
+        await navigator.share({ files:[file], title:'Backup Torneo Padel', text:'Backup Torneo Padel' });
+        markBackup();
+        dataMsg = 'Backup condiviso.';
+      }catch(err){
+        if(err && err.name === 'AbortError'){
+          dataMsg = 'Condivisione annullata: il backup non è stato salvato.';
+        } else {
+          const ok = await saveFile(fname, blob);
+          if(ok) markBackup();
+          dataMsg = ok ? 'Condivisione non riuscita: backup scaricato come file.' : 'Backup non riuscito.';
+        }
+      }
+    } else {
+      const ok = await saveFile(fname, blob);
+      if(ok) markBackup();
+      dataMsg = ok ? 'Condivisione di file non supportata qui: backup scaricato.' : 'Backup non riuscito.';
+    }
+  }catch(e){
+    dataMsg = 'Backup non riuscito'+(e && e.message ? ': '+e.message : '')+'.';
+  }
+  render();
+}
+
 async function exportData(){
   dataMsg = 'Preparazione backup…';
   render();
   try{
     if(typeof JSZip === 'undefined'){ dataMsg = 'Libreria di esportazione non caricata (controlla la connessione e riprova).'; render(); return; }
-    const zip = new JSZip();
-    zip.file('roster.json', JSON.stringify(roster, null, 2));
-    zip.file('tournament.json', JSON.stringify(t, null, 2));
-    zip.file('archive.json', JSON.stringify(archive, null, 2));
-    const blob = await zip.generateAsync({type:'blob'});
+    const blob = await buildBackupBlob();
     const ok = await saveFile('torneo-padel-backup-'+timestampForFilename()+'.zip', blob);
     if(ok) markBackup();
     dataMsg = ok ? 'Backup salvato.' : 'Esportazione annullata o non riuscita.';
@@ -1362,10 +1405,11 @@ function backupBanner(){
 
 function dataSection(){
   let html = '<section><p class="section-label">Dati</p>';
-  html += '<div class="data-row"><button class="ghost" onclick="exportData()">Esporta (.zip)</button>';
-  html += '<label class="ghost" for="importFile" style="cursor:pointer;">Importa</label></div>';
+  html += '<div class="data-row"><button class="ghost" onclick="shareBackup()">Condividi backup</button>';
+  html += '<button class="ghost" onclick="exportData()">Scarica (.zip)</button></div>';
+  html += '<div class="data-row"><label class="ghost" for="importFile" style="cursor:pointer;">Importa backup</label></div>';
   html += '<input type="file" id="importFile" accept=".zip" onchange="handleImportFile(this.files[0])" />';
-  html += '<p class="hint" style="margin-top:8px;">Tornei archiviati: '+archive.length+' (ultimi '+ARCHIVE_MAX+')'+(getLastBackup() ? ' · ultimo backup: '+new Date(getLastBackup()).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : ' · nessun backup ancora')+'</p>';
+  html += '<p class="hint" style="margin-top:8px;">Tornei archiviati: '+archive.length+' (ultimi '+ARCHIVE_MAX+')'+(getLastBackup() ? ' · ultimo backup: '+new Date(getLastBackup()).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : ' · nessun backup ancora')+(storagePersisted === true ? ' · memoria dell\'app protetta dal telefono' : (storagePersisted === false ? ' · memoria non protetta: fai il backup spesso' : ''))+'</p>';
   if(dataMsg){ html += '<p class="hint" style="margin-top:8px;">'+dataMsg+'</p>'; }
   html += '</section>';
   return html;
@@ -2810,10 +2854,17 @@ function shareRatingSummaryWhatsApp(){
 
 // ---------- Tabellone live (kiosk) + timer ----------
 const KIOSK_DEFAULT_SECS = 15 * 60;
-let kioskTimeLeft = KIOSK_DEFAULT_SECS;
+let kioskTimeLeft = KIOSK_DEFAULT_SECS;   // secondi mostrati a timer fermo
+let kioskEndAt = null;                    // istante (ms) di fine, a timer in marcia: resta esatto anche se il telefono mette in pausa la pagina
 let kioskTimerInterval = null;
 let kioskRound = null;   // turno per cui il timer è stato impostato; al cambio di turno il timer riparte da 15'
+let kioskAudioCtx = null;
+let kioskWakeLock = null;
 
+function kioskRemaining(){
+  if(kioskEndAt === null) return kioskTimeLeft;
+  return Math.max(0, Math.ceil((kioskEndAt - Date.now()) / 1000));
+}
 function ensureKioskOverlay(){
   let el = document.getElementById('kioskOverlay');
   if(!el){
@@ -2828,18 +2879,68 @@ function kioskIsOpen(){
   return !!(el && el.style.display !== 'none' && el.style.display !== '');
 }
 function stopKioskTimer(){
+  kioskTimeLeft = kioskRemaining();
+  kioskEndAt = null;
   if(kioskTimerInterval){ clearInterval(kioskTimerInterval); kioskTimerInterval = null; }
 }
+// Il bip richiede un tocco dell'utente per essere "sbloccato": lo si fa all'apertura del tabellone e all'avvio del timer.
+function kioskAudioUnlock(){
+  try{
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if(!AC) return;
+    if(!kioskAudioCtx) kioskAudioCtx = new AC();
+    if(kioskAudioCtx.state === 'suspended') kioskAudioCtx.resume();
+  }catch(e){}
+}
+function kioskAlarm(){
+  try{ if(navigator.vibrate) navigator.vibrate([400,150,400,150,400]); }catch(e){}
+  try{
+    if(!kioskAudioCtx) return;
+    const ctx = kioskAudioCtx, t0 = ctx.currentTime + 0.05;
+    for(let i = 0; i < 3; i++){
+      const o = ctx.createOscillator(), g = ctx.createGain(), st = t0 + i * 0.45;
+      o.type = 'sine'; o.frequency.value = 880;
+      g.gain.setValueAtTime(0.0001, st);
+      g.gain.exponentialRampToValueAtTime(0.5, st + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, st + 0.3);
+      o.connect(g); g.connect(ctx.destination);
+      o.start(st); o.stop(st + 0.32);
+    }
+  }catch(e){}
+}
+// Schermo sempre acceso finché il tabellone è aperto (se il telefono lo permette).
+async function kioskWakeAcquire(){
+  try{
+    if(!('wakeLock' in navigator) || kioskWakeLock) return;
+    const wl = await navigator.wakeLock.request('screen');
+    kioskWakeLock = wl;
+    wl.addEventListener('release', () => { if(kioskWakeLock === wl) kioskWakeLock = null; });
+  }catch(e){ kioskWakeLock = null; }
+}
+function kioskWakeRelease(){
+  try{ if(kioskWakeLock) kioskWakeLock.release(); }catch(e){}
+  kioskWakeLock = null;
+}
+document.addEventListener('visibilitychange', () => {
+  if(document.hidden) return;
+  if(kioskIsOpen()) kioskWakeAcquire();   // il sistema lo rilascia quando la pagina va in secondo piano
+  if(kioskTimerInterval) kioskTick();
+});
 function openKiosk(){
   if(!t.currentMatches || !t.currentMatches.length) return;
   if(kioskRound !== t.round){ stopKioskTimer(); kioskTimeLeft = KIOSK_DEFAULT_SECS; kioskRound = t.round; }
+  kioskAudioUnlock();
   ensureKioskOverlay().style.display = 'flex';
+  kioskWakeAcquire();
   renderKiosk();
+  syncNav();
 }
 function closeKiosk(){
   stopKioskTimer();   // il timer si ferma chiudendo il tabellone: nessun conto alla rovescia invisibile
+  kioskWakeRelease();
   const el = document.getElementById('kioskOverlay');
   if(el) el.style.display = 'none';
+  syncNav();
 }
 // Chiamata a ogni render(): se il turno è cambiato o è stato chiuso, il tabellone si aggiorna o si chiude.
 function syncKiosk(){
@@ -2849,31 +2950,37 @@ function syncKiosk(){
   renderKiosk();
 }
 function adjustTimer(mins){
-  kioskTimeLeft += mins * 60;
-  if(kioskTimeLeft < 0) kioskTimeLeft = 0;
-  if(kioskTimeLeft > 99 * 60) kioskTimeLeft = 99 * 60;
+  let left = kioskRemaining() + mins * 60;
+  left = Math.max(0, Math.min(99 * 60, left));
+  if(kioskEndAt !== null){
+    kioskEndAt = Date.now() + left * 1000;
+    if(left === 0){ stopKioskTimer(); }
+  } else {
+    kioskTimeLeft = left;
+  }
+  renderKiosk();
+}
+function kioskTick(){
+  if(kioskEndAt === null) return;   // timer fermo: niente da fare (e niente allarme ripetuto)
+  if(kioskRemaining() === 0){ stopKioskTimer(); kioskAlarm(); }
   renderKiosk();
 }
 function toggleTimer(){
+  kioskAudioUnlock();
   if(kioskTimerInterval){
     stopKioskTimer();
   } else if(kioskTimeLeft > 0){
-    kioskTimerInterval = setInterval(() => {
-      if(kioskTimeLeft > 0) kioskTimeLeft--;
-      if(kioskTimeLeft === 0){
-        stopKioskTimer();
-        try{ if(navigator.vibrate) navigator.vibrate([400,150,400,150,400]); }catch(e){}
-      }
-      renderKiosk();
-    }, 1000);
+    kioskEndAt = Date.now() + kioskTimeLeft * 1000;
+    kioskTimerInterval = setInterval(kioskTick, 500);
   }
   renderKiosk();
 }
 function renderKiosk(){
   const el = ensureKioskOverlay();
-  const mins = String(Math.floor(kioskTimeLeft / 60)).padStart(2, '0');
-  const secs = String(kioskTimeLeft % 60).padStart(2, '0');
-  const over = kioskTimeLeft === 0;
+  const left = kioskRemaining();
+  const mins = String(Math.floor(left / 60)).padStart(2, '0');
+  const secs = String(left % 60).padStart(2, '0');
+  const over = left === 0;
   let html = '<div class="kiosk-header"><div class="kiosk-timer" onclick="toggleTimer()" title="Tocca per avviare/pausa"'+(over?' style="color:var(--danger);"':'')+'>'+mins+':'+secs+'</div>';
   html += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
   html += '<button class="small" onclick="adjustTimer(1)">+1m</button>';
@@ -3153,6 +3260,7 @@ function rankingView(){
 function render(){
   renderMain();
   syncKiosk();
+  syncNav();
 }
 function renderMain(){
   const app = document.getElementById('app');
@@ -3445,8 +3553,151 @@ function initData(){
     if(changed > 0) dataMsg = 'I rating ora si ricalcolano dai tornei archiviati (partenza da 1000): per '+changed+' giocatori il valore è cambiato rispetto a prima.';
   }
 }
+
+// ---------- Tasto indietro del telefono ----------
+// Ogni schermata "sopra" il torneo (grafici/profilo, diagnostica, classifiche, archivio, modifiche in corso, tabellone)
+// è un livello. Indietro chiude il livello più alto; dal torneo (nessun livello) chiede conferma prima di uscire.
+let navIdx = 0;          // posizione corrente nella cronologia del browser (0 = sentinella di uscita, 1 = torneo)
+let navIgnore = 0;       // popstate provocati da noi (riallineamenti), da non interpretare come "indietro" dell'utente
+let navBusy = false;
+let navReady = false;
+function navLayers(){
+  const L = [];
+  if(pairEdit) L.push('pairedit');
+  if(extraDraft) L.push('extra');
+  if(showDiag) L.push('ranking', 'diag');
+  else if(showRanking) L.push('ranking');
+  else if(showTeamRanking) L.push('teams');
+  else if(showArchive){
+    L.push('archive');
+    if(archiveExtraDraft || archiveRoundDraft || archiveRemoveConfirm) L.push('archivedraft');
+  }
+  if(viewingPlayerId) L.push('profile');
+  if(kioskIsOpen()) L.push('kiosk');
+  return L;
+}
+function navCloseTop(){
+  const L = navLayers();
+  switch(L[L.length - 1]){
+    case 'kiosk': closeKiosk(); break;
+    case 'profile': viewingPlayerId = null; break;
+    case 'diag': showDiag = false; showRanking = true; break;
+    case 'ranking': showRanking = false; break;
+    case 'teams': showTeamRanking = false; break;
+    case 'archivedraft': archiveExtraDraft = null; archiveRoundDraft = null; archiveRemoveConfirm = null; break;
+    case 'archive': showArchive = false; break;
+    case 'extra': extraDraft = null; break;
+    case 'pairedit': pairEdit = null; break;
+  }
+}
+function navCloseAll(){
+  let guard = 12;
+  while(navLayers().length > 0 && guard-- > 0) navCloseTop();
+}
+function syncNav(){
+  if(!navReady || navBusy) return;
+  // Riallineamento già avvenuto (la cronologia è già sulla voce attesa): non serve più aspettare il popstate.
+  if(navIgnore > 0 && history.state && history.state.nav === navIdx) navIgnore = 0;
+  if(navIgnore > 0) return;
+  const want = navLayers().length + 1;
+  try{
+    if(want > navIdx){
+      while(navIdx < want){ navIdx++; history.pushState({ padel:1, nav:navIdx }, ''); }
+    } else if(want < navIdx){
+      const d = navIdx - want;
+      navIdx = want;
+      navIgnore = 1;
+      history.go(-d);
+      setTimeout(() => { if(navIgnore > 0){ navIgnore = 0; syncNav(); } }, 800);   // rete di sicurezza se il popstate non arriva
+    }
+  }catch(e){ navReady = false; }
+}
+// La voce "sentinella" si crea al primo tocco: i browser ignorano all'indietro le voci create senza interazione dell'utente.
+function navArm(){
+  if(navReady) return;
+  try{
+    history.replaceState({ padel:1, nav:0 }, '');
+    history.pushState({ padel:1, nav:1 }, '');
+    navIdx = 1;
+    navReady = true;
+    syncNav();
+  }catch(e){ navReady = false; }
+}
+document.addEventListener('pointerdown', navArm, { passive:true });
+window.addEventListener('popstate', function(e){
+  if(!navReady) return;
+  if(navIgnore > 0){
+    navIgnore--;
+    if(navIgnore === 0) syncNav();
+    return;
+  }
+  const st = e.state;
+  if(!st || st.padel !== 1 || typeof st.nav !== 'number') return;
+  if(st.nav === navIdx) return;   // eco di un riallineamento già fatto: non è un "indietro" dell'utente
+  navIdx = st.nav;
+  navBusy = true;
+  if(navIdx === 0){
+    navCloseAll();
+    render();                      // con navBusy attivo syncNav resta in pausa: non ricrea la voce mentre si decide
+    if(confirm('Vuoi uscire dall\'app?')){
+      navBusy = false;
+      history.back();              // esce (o torna alla pagina precedente nel browser)
+    } else {
+      navIdx = 1;
+      navIgnore = 1;
+      navBusy = false;
+      history.go(1);               // torna sul torneo
+      setTimeout(() => { if(navIgnore > 0){ navIgnore = 0; syncNav(); } }, 800);
+    }
+    return;
+  }
+  const target = navIdx - 1;
+  let guard = 12;
+  while(navLayers().length > target && guard-- > 0) navCloseTop();
+  navBusy = false;
+  render();
+});
+
+// ---------- Versione e aggiornamenti ----------
+const APP_VERSION = (document.querySelector('meta[name="app-version"]') || {}).content || '?';
+let lastUpdateCheck = 0;
+function showUpdateBar(v){
+  const el = document.getElementById('updateBar');
+  if(!el) return;
+  el.innerHTML = '<span>Nuova versione disponibile ('+esc(v)+')</span><button class="small" onclick="location.reload()">Aggiorna</button>';
+  el.style.display = 'flex';
+}
+async function checkForUpdate(force){
+  if(location.protocol.indexOf('http') !== 0 || navigator.onLine === false) return;
+  const now = Date.now();
+  if(!force && now - lastUpdateCheck < 30 * 60 * 1000) return;
+  lastUpdateCheck = now;
+  try{
+    const r = await fetch('./index.html', { cache:'no-store' });
+    if(!r.ok) return;
+    const m = (await r.text()).match(/name="app-version"\s+content="([^"]+)"/);
+    if(m && m[1] !== APP_VERSION) showUpdateBar(m[1]);
+  }catch(e){}
+}
+window.addEventListener('load', () => { setTimeout(() => checkForUpdate(true), 2500); });
+document.addEventListener('visibilitychange', () => { if(!document.hidden) checkForUpdate(false); });
+
+// ---------- Memoria persistente ----------
+let storagePersisted = null;
+function requestPersistentStorage(){
+  try{
+    if(!(navigator.storage && navigator.storage.persisted)) return;
+    navigator.storage.persisted().then(p => {
+      if(p){ storagePersisted = true; return; }
+      if(navigator.storage.persist) return navigator.storage.persist().then(ok => { storagePersisted = !!ok; });
+    }).catch(() => {});
+  }catch(e){}
+}
+
 initData();
+document.getElementById('appver').textContent = 'Torneo Padel ' + APP_VERSION;
 render();
+requestPersistentStorage();
 </script>
 <script>
 // PWA: funzionamento offline e app installabile (richiede HTTPS; non attivo aprendo il file in locale)
