@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v35">
+<meta name="app-version" content="v36">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -181,6 +181,8 @@
 
 
   #updateBar{display:none;position:sticky;top:0;z-index:60;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;padding:calc(8px + env(safe-area-inset-top,0px)) 12px 8px;background:var(--ball);color:#0B3D3A;font-family:var(--font-head);font-weight:600;font-size:14px;}
+  #modeBar{display:none;position:sticky;top:0;z-index:59;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;padding:calc(8px + env(safe-area-inset-top,0px)) 12px 8px;background:var(--danger);color:#fff;font-family:var(--font-head);font-weight:600;font-size:14px;}
+  #modeBar button{background:#fff;color:var(--danger);border:0;}
   #updateBar button{background:#0B3D3A;color:var(--ball);border:0;}
   #toast{display:none;position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--court);padding:10px 18px;border-radius:999px;font-family:var(--font-head);font-weight:600;font-size:14px;z-index:300;max-width:90%;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,.35);}
   .upset{color:var(--ball-dark);font-size:12px;font-weight:600;white-space:nowrap;}
@@ -199,6 +201,7 @@
 </head>
 <body>
 <div id="updateBar" role="status"></div>
+<div id="modeBar" role="status"></div>
 <div id="toast" role="status"></div>
 <div class="wrap">
   <header>
@@ -498,12 +501,13 @@ function registerArchiveSides(i){
   dataMsg = 'Lati registrati.';
   render();
 }
-function archiveGames(a){
+function archiveGames(a, ignoreExtrasOff){
   const out = [];
   (a.history || []).forEach(h => h.matches.forEach(m => {
     out.push({ idsA: m.pa || teamIdsFor(a, m.aId, m.a), idsB: m.pb || teamIdsFor(a, m.bId, m.b), s1:m.s1, s2:m.s2, tb:m.tb, weight:1, sides:m.sides });
   }));
   (a.extras || []).forEach(x => {
+    if(extrasOff && !ignoreExtrasOff) return;   // modalità confronto: le extra non contano
     const w = x.weight !== undefined ? x.weight : (x.rating==='full' ? 1 : (x.rating==='reduced' ? EXTRA_K_FACTOR : 0));
     if(w > 0) out.push({ idsA: x.idsA || x.teamA.map(resolveId), idsB: x.idsB || x.teamB.map(resolveId), s1:x.s1, s2:x.s2, tb:x.tb, weight:w });
   });
@@ -590,7 +594,7 @@ function recomputeRatings(){
 function foldArchiveEntryIntoBase(a){
   if(a.excluded) return;   // già fuori dai calcoli: esce dall'archivio senza toccare nulla
   const byId = roster;  // la chiave della rubrica È l'id
-  const entries = archiveGames(a);
+  const entries = archiveGames(a, true);   // nel ripiegamento contano sempre le extra, a prescindere dalla modalità confronto
   const snap = {};
   entries.forEach(e => e.idsA.concat(e.idsB).forEach(id => {
     const p = byId[id];
@@ -1825,6 +1829,12 @@ function archiveParticipantNames(a){
 let deleteArchiveArmed = null;
 let archiveExtraDraft = null;  // bozza della partita extra aggiunta a posteriori a un torneo archiviato
 let archiveRoundDraft = null;  // bozza di un turno ufficiale (Americano/Messicano) aggiunto a posteriori, con abbinamenti forzati
+const LS_EXTRAS_OFF = 'padel-extrasoff-v1';
+// Modalità confronto: con extrasOff le partite extra non entrano nei calcoli (rating, classifiche, profili). I dati non cambiano:
+// il peso di ogni extra (pieno, 50%, escluso) resta quello salvato e tornando indietro si riottiene esattamente la situazione di prima.
+let extrasOff = false;
+try{ extrasOff = localStorage.getItem(LS_EXTRAS_OFF) === '1'; }catch(e){}
+let archiveExtrasView = false;   // elenco aggregato di tutte le partite extra dei tornei archiviati
 let archiveSubDraft = null;      // sostituzione di un giocatore in un torneo archiviato: { idx } oppure null
 let archiveRemoveConfirm = null;  // { type:'extra'|'round', i, id|hi/mi, desc } — conferma richiesta prima di eliminare una singola partita
 function toggleArchiveExpand(idx){ expandedArchiveIdx = (expandedArchiveIdx===idx) ? null : idx; editingArchiveIdx = null; deleteArchiveArmed = null; archiveSubDraft = null; archiveExtraDraft = null; archiveRoundDraft = null; archiveRemoveConfirm = null; render(); }
@@ -2014,14 +2024,54 @@ function askRemoveArchiveExtra(i, id){
   render();
 }
 // Sposta una partita extra archiviata in un turno ufficiale: da quel momento conta nella classifica V/game del torneo (solo Americano/Messicano).
+// A quale coppia di squadre del torneo corrisponde una partita extra (solo squadre fisse). Una squadra "è" la sua composizione
+// finale, ma anche ogni coppia con cui ha giocato prima di eventuali sostituzioni.
+function extraTeamIds(a, x){
+  if(a.mode && a.mode !== 'fixed') return null;
+  const same = (p, q) => p && q && p.length === q.length && p.every(id => q.includes(id));
+  const pairsOf = idx => {
+    const tm = a.teams[idx] || {};
+    const list = [tm.playerIds];
+    (a.history || []).forEach(h => h.matches.forEach(m => { if(m.aId === idx) list.push(m.pa); if(m.bId === idx) list.push(m.pb); }));
+    // composizioni precedenti alle sostituzioni (si ricostruiscono andando a ritroso)
+    let cur = (tm.playerIds || []).slice();
+    (tm.subs || []).slice().reverse().forEach(sb => {
+      const inId = findIdByName(sb.in), outId = findIdByName(sb.out);
+      if(inId && outId){ cur = cur.map(id => id === inId ? outId : id); list.push(cur.slice()); }
+    });
+    return list;
+  };
+  const find = ids => (a.teams || []).findIndex((tm, idx) => pairsOf(idx).some(pr => same(pr, ids)));
+  const ia = find(x.idsA), ib = find(x.idsB);
+  return (ia >= 0 && ib >= 0 && ia !== ib) ? { aId: ia, bId: ib } : null;
+}
+function canMoveExtraToRound(a, x){ return (a.mode && a.mode !== 'fixed') || !!extraTeamIds(a, x); }
 function moveArchiveExtraToRound(i, id){
   const a = archive[i];
   const x = (a.extras||[]).find(e => e.id === id);
   if(!x) return;
+  const fixed = !a.mode || a.mode === 'fixed';
+  let ids = null;
+  if(fixed){
+    ids = extraTeamIds(a, x);
+    if(!ids){ dataMsg = 'Questa partita non corrisponde a due squadre del torneo: resta tra le extra.'; render(); return; }
+  }
   a.extras = a.extras.filter(e => e.id !== id);
-  a.roundsPlayed = (a.roundsPlayed||0) + 1;
+  const rec = fixed
+    ? { aId: ids.aId, bId: ids.bId, a: x.teamA.join(' & '), b: x.teamB.join(' & '), pa: x.idsA||[], pb: x.idsB||[], s1: x.s1, s2: x.s2, tb: x.tb, court: 0 }
+    : { pa: x.idsA||[], pb: x.idsB||[], a: x.teamA.join(' & '), b: x.teamB.join(' & '), s1: x.s1, s2: x.s2, tb: x.tb, court: 0 };
+  if(x.sides) rec.sides = x.sides;
+  if(typeof x.pA === 'number') rec.pA = x.pA;
   if(!a.history) a.history = [];
-  a.history.push({ round: a.roundsPlayed, resting: [], matches: [{ pa: x.idsA||[], pb: x.idsB||[], a: x.teamA.join(' & '), b: x.teamB.join(' & '), s1: x.s1, s2: x.s2, tb: x.tb, court: 0 }] });
+  // se si sa da quale turno veniva e il turno esiste ancora, torna lì; altrimenti diventa un nuovo turno in coda
+  let h = x.fromRound ? a.history.find(r => r.round === x.fromRound) : null;
+  if(h){ rec.court = h.matches.length; h.matches.push(rec); }
+  else {
+    const next = a.history.reduce((mx, r) => Math.max(mx, r.round || 0), 0) + 1;
+    a.history.push({ round: next, resting: [], matches: [rec] });
+  }
+  a.roundsPlayed = a.history.length;
+  if(fixed) recomputeTeamAggregates(a);
   recomputeRatings();
   ratingSummary = null;
   saveArchive(); saveRoster();
@@ -2112,7 +2162,10 @@ function moveArchiveMatchToExtra(i, hi, mi){
   const nameOf = id => nm[id] || (roster[id] && roster[id].name) || id;
   const teamA = (m.pa||[]).map(nameOf), teamB = (m.pb||[]).map(nameOf);
   if(!a.extras) a.extras = [];
-  a.extras.push({ id: Date.now(), teamA, teamB, s1:m.s1, s2:m.s2, tb:m.tb, rating:'full', weight:1, idsA:m.pa||[], idsB:m.pb||[] });
+  const ex = { id: Date.now(), teamA, teamB, s1:m.s1, s2:m.s2, tb:m.tb, rating:'full', weight:1, idsA:m.pa||[], idsB:m.pb||[], fromRound:h.round };
+  if(m.sides) ex.sides = m.sides;          // si ripristinano se la partita torna tra i turni
+  if(typeof m.pA === 'number') ex.pA = m.pA;
+  a.extras.push(ex);
   h.matches.splice(mi, 1);
   if(h.matches.length === 0) a.history.splice(hi, 1);
   a.roundsPlayed = a.history.length;
@@ -2174,6 +2227,7 @@ function archiveSubApply(a, oldId, newId, from){
       out.extras++;
       if(inA >= 0){ x.teamA = x.teamA.slice(); x.teamA[inA] = newName; x.idsA = swap(x.idsA); }
       if(inB >= 0){ x.teamB = x.teamB.slice(); x.teamB[inB] = newName; x.idsB = swap(x.idsB); }
+      if(x.sides){ x.sides = { a: swap(x.sides.a || []), b: swap(x.sides.b || []) }; }
     });
   }
   const oldName = (roster[oldId] && roster[oldId].name) || oldId;
@@ -2235,6 +2289,77 @@ function archiveSubPanel(a, i){
   html += '<p class="err" id="asErr"></p>';
   html += '<div class="btn-pair" style="margin-top:8px;"><button class="ghost" onclick="closeArchiveSub()">Annulla</button><button class="primary" onclick="confirmArchiveSub()">Conferma</button></div></div>';
   return html;
+}
+// ---------- partite extra: conteggi, interruttore dei calcoli, elenco aggregato ----------
+function extraWeightOf(x){ return x.weight !== undefined ? x.weight : (x.rating==='full' ? 1 : (x.rating==='reduced' ? EXTRA_K_FACTOR : 0)); }
+function extraCounts(list){
+  const c = { total:0, full:0, reduced:0, none:0 };
+  (list || archive.filter(a => !a.excluded)).forEach(a => (a.extras || []).forEach(x => {
+    const w = extraWeightOf(x);
+    c.total++;
+    if(w >= 1) c.full++; else if(w > 0) c.reduced++; else c.none++;
+  }));
+  return c;
+}
+function extraCountsText(){
+  const c = extraCounts();
+  if(!c.total) return 'Nessuna partita extra nei tornei archiviati.';
+  return c.total+(c.total===1?' partita extra':' partite extra')+': '+c.full+' piene · '+c.reduced+' al 50% · '+c.none+' escluse.';
+}
+function setExtrasOff(v){
+  extrasOff = !!v;
+  try{ localStorage.setItem(LS_EXTRAS_OFF, extrasOff ? '1' : '0'); }catch(e){}
+  recomputeRatings();
+  saveRoster();
+  saveArchive();
+  render();
+}
+function extrasToggleHtml(){
+  const c = extraCounts();
+  if(!c.total) return '';
+  return '<div style="margin:0 0 12px;"><p class="hint" style="margin:0 0 6px;">Partite extra nei calcoli · '+esc(extraCountsText())+'</p>'
+    + '<div class="seg"><button class="small'+(!extrasOff?' on':'')+'" onclick="setExtrasOff(false)">Come salvate</button>'
+    + '<button class="small'+(extrasOff?' on':'')+'" onclick="setExtrasOff(true)">Tutte escluse</button></div></div>';
+}
+function toggleArchiveExtrasView(){ archiveExtrasView = !archiveExtrasView; render(); }
+function openArchiveFromExtras(i){
+  archiveExtrasView = false;
+  expandedArchiveIdx = i;
+  const d = new Date(archive[i].date);
+  archiveOpenMonths = new Set([d.getFullYear()+'-'+String(d.getMonth()).padStart(2,'0')]);
+  render();
+}
+// Elenco di tutte le partite extra dei tornei che passano i filtri correnti (per giocatore: solo quelle in cui ha giocato).
+function archiveExtrasList(filtered){
+  const rows = [];
+  filtered.forEach(({a, i, d}) => (a.extras || []).forEach(x => {
+    const names = (x.teamA || []).concat(x.teamB || []);
+    if(archiveFilterPlayer && !names.includes(archiveFilterPlayer)) return;
+    if(archiveSearchText.trim() && !names.some(n => n.toLowerCase().includes(archiveSearchText.trim().toLowerCase()))) return;
+    rows.push({ a, i, d, x });
+  }));
+  let html = extrasToggleHtml();
+  if(!rows.length) return html + '<p class="roster-empty" style="margin-top:10px;">Nessuna partita extra corrisponde ai filtri.</p>';
+  const w = r => extraWeightOf(r.x);
+  const cnt = { full: rows.filter(r => w(r) >= 1).length, reduced: rows.filter(r => w(r) > 0 && w(r) < 1).length, none: rows.filter(r => w(r) === 0).length };
+  html += '<p class="hint" style="margin:0 0 8px;">'+rows.length+(rows.length===1?' partita extra':' partite extra')+' nei filtri: '+cnt.full+' piene · '+cnt.reduced+' al 50% · '+cnt.none+' escluse.</p>';
+  let lastIdx = -1;
+  rows.forEach(r => {
+    if(r.i !== lastIdx){
+      lastIdx = r.i;
+      html += '<div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0 4px;"><p class="section-label" style="margin:0;">'+esc(r.d.toLocaleDateString('it-IT', { day:'numeric', month:'long', year:'numeric' }))+((r.a.mode && r.a.mode !== 'fixed') ? ' · '+esc(r.a.mode) : '')+(r.a.excluded ? ' · torneo escluso' : '')+'</p><button class="small" onclick="openArchiveFromExtras('+r.i+')">Apri torneo</button></div>';
+    }
+    html += '<div class="history-match extra-row"><span>'+esc(r.x.teamA.join(' & '))+' vs '+esc(r.x.teamB.join(' & '))+'<span class="extra-tag">'+extraTag(r.x)+(extrasOff ? ' · ora esclusa dal confronto' : '')+'</span></span><span class="extra-side">'+r.x.s1+' &ndash; '+r.x.s2+(r.x.tb ? ' <span class="tb-inline">(tb '+r.x.tb[0]+'-'+r.x.tb[1]+')</span>' : '')+'</span></div>';
+  });
+  return html;
+}
+function modeBarSync(){
+  const el = document.getElementById('modeBar');
+  if(!el) return;
+  if(extrasOff){
+    el.innerHTML = '<span>Confronto: partite extra escluse dai calcoli</span><button class="small" onclick="setExtrasOff(false)">Ripristina</button>';
+    el.style.display = 'flex';
+  } else { el.style.display = 'none'; el.innerHTML = ''; }
 }
 function archiveSwapRow(a, m, hi, mi){
   if(a.mode && a.mode !== 'fixed') return '';
@@ -2301,7 +2426,7 @@ function archiveDetailBody(a, i){
         const r = x.rating || (x.weight===0 ? 'none' : (x.weight===1 ? 'full' : 'reduced'));
         html += '<div class="edit-match"><p class="edit-match-name">'+esc(x.teamA.join(' & '))+' <span style="opacity:.7;">vs</span> '+esc(x.teamB.join(' & '))+'</p><div class="edit-match-tag"><select id="ex_'+xi+'_r"><option value="reduced"'+(r==='reduced'?' selected':'')+'>Peso ridotto</option><option value="full"'+(r==='full'?' selected':'')+'>Peso pieno</option><option value="none"'+(r==='none'?' selected':'')+'>Non conta</option></select></div>'+scoreInputs('ex_'+xi+'_1','ex_'+xi+'_2',x.s1,x.s2,'ex_'+xi+'_tb1','ex_'+xi+'_tb2','ex_'+xi+'_tbrow',x.tb)+'</div>';
       } else {
-        html += '<div class="history-match extra-row"><span>'+esc(x.teamA.join(' & '))+' vs '+esc(x.teamB.join(' & '))+'<span class="extra-tag">'+extraTag(x)+'</span>'+pairStrengthShort(x.teamA,x.teamB)+'</span><span class="extra-side">'+x.s1+' &ndash; '+x.s2+(x.tb?' <span class="tb-inline">(tb '+x.tb[0]+'-'+x.tb[1]+')</span>':'')+(rotatingArchive?' <button class="small" title="Sposta tra i turni ufficiali" onclick="moveArchiveExtraToRound('+i+','+x.id+')">→ turno</button>':'')+'<button class="small danger" onclick="askRemoveArchiveExtra('+i+','+x.id+')">✕</button></span></div>';
+        html += '<div class="history-match extra-row"><span>'+esc(x.teamA.join(' & '))+' vs '+esc(x.teamB.join(' & '))+'<span class="extra-tag">'+extraTag(x)+'</span>'+pairStrengthShort(x.teamA,x.teamB)+'</span><span class="extra-side">'+x.s1+' &ndash; '+x.s2+(x.tb?' <span class="tb-inline">(tb '+x.tb[0]+'-'+x.tb[1]+')</span>':'')+(canMoveExtraToRound(a, x)?' <button class="small" title="Rimetti tra le partite del torneo" onclick="moveArchiveExtraToRound('+i+','+x.id+')">→ turno</button>':'')+'<button class="small danger" onclick="askRemoveArchiveExtra('+i+','+x.id+')">✕</button></span></div>';
       }
     });
     if(!editing){
@@ -2422,6 +2547,10 @@ function archiveView(){
     html += '<button class="ghost" style="margin-top:8px;" onclick="clearArchiveFilters()">Azzera filtri</button>';
   }
 
+  const exCountAll = extraCounts(archive).total;
+  if(exCountAll > 0){
+    html += '<button class="ghost'+(archiveExtrasView ? ' back-active' : '')+'" style="margin-top:8px;" onclick="toggleArchiveExtrasView()">'+(archiveExtrasView ? 'Torna ai tornei' : 'Tutte le partite extra ('+exCountAll+')')+'</button>';
+  }
   const q = archiveSearchText.trim().toLowerCase();
   const filtered = entries.filter(e => {
     if(archiveFilterYear && String(e.d.getFullYear()) !== String(archiveFilterYear)) return false;
@@ -2440,6 +2569,11 @@ function archiveView(){
     return html;
   }
 
+  if(archiveExtrasView){
+    html += archiveExtrasList(filtered);
+    html += '</section>';
+    return html;
+  }
   const visible = filtered.slice(0, archivePageSize);
   const groups = [];
   visible.forEach(e => {
@@ -3252,6 +3386,7 @@ function shareRankingWhatsApp(){
   text += monoBlock(lines);
   const frozen = activeKeys().filter(k => roster[k].frozen).map(k => roster[k].name);
   if(frozen.length) text += '\n❄ Congelati: ' + frozen.join(', ') + '\n';
+  if(extrasOff) text += '\n(confronto: partite extra escluse dai calcoli)';
   if(anyProv) text += '\n* provvisorio (meno di ' + PROVISIONAL_MATCHES + ' partite)';
   text += '\n_↑↓ = cambio posizione vs torneo precedente_';
   shareText(text.trim(), 'Classifica Padel');
@@ -3656,6 +3791,7 @@ function rankingView(){
   html += '<div class="seg"><button class="small'+(rankMode==='elo'?' on':'')+'" onclick="setRankMode(\'elo\')">Elo</button>';
   html += '<button class="small'+(rankMode==='win'?' on':'')+'" onclick="setRankMode(\'win\')">% vittorie</button>';
   html += '<button class="small'+(rankMode==='glicko'?' on':'')+'" onclick="setRankMode(\'glicko\')">Glicko-2</button></div>';
+  html += extrasToggleHtml();
   html += '<div class="btn-pair" style="margin-bottom:12px;"><button class="secondary" style="margin-top:0;" onclick="shareRankingWhatsApp()">Condividi classifica</button><button class="secondary" style="margin-top:0;" onclick="shareTrendsWhatsApp()">Condividi trend</button></div>';
 
   if(rankMode === 'glicko'){
@@ -3760,6 +3896,7 @@ function rankingView(){
 function render(){
   renderMain();
   syncKiosk();
+  modeBarSync();
   syncNav();
 }
 function renderMain(){
@@ -3776,7 +3913,7 @@ function renderMain(){
   let html = '<div class="btn-pair" style="margin-bottom:1.25rem;">';
   html += '<button class="ghost'+(showRanking ? ' back-active' : '')+'" onclick="showDiag=false;showRanking=!showRanking;showTeamRanking=false;showArchive=false;render();">'+(showRanking ? 'Torna al torneo' : 'Classifica giocatori')+'</button>';
   html += '<button class="ghost'+(showTeamRanking ? ' back-active' : '')+'" onclick="showDiag=false;showTeamRanking=!showTeamRanking;showRanking=false;showArchive=false;render();">'+(showTeamRanking ? 'Torna al torneo' : 'Classifica squadre')+'</button>';
-  html += '<button class="ghost'+(showArchive ? ' back-active' : '')+'" onclick="showDiag=false;showArchive=!showArchive;showRanking=false;showTeamRanking=false;render();">'+(showArchive ? 'Torna al torneo' : 'Tornei passati')+'</button>';
+  html += '<button class="ghost'+(showArchive ? ' back-active' : '')+'" onclick="showDiag=false;showArchive=!showArchive;archiveExtrasView=false;showRanking=false;showTeamRanking=false;render();">'+(showArchive ? 'Torna al torneo' : 'Tornei passati')+'</button>';
   html += '</div>';
 
   if(showDiag){
@@ -4094,6 +4231,7 @@ function navLayers(){
   else if(showTeamRanking) L.push('teams');
   else if(showArchive){
     L.push('archive');
+    if(archiveExtrasView) L.push('archiveextras');
     if(archiveExtraDraft || archiveRoundDraft || archiveRemoveConfirm || archiveSubDraft) L.push('archivedraft');
   }
   if(viewingPlayerId) L.push('profile');
@@ -4109,6 +4247,7 @@ function navCloseTop(){
     case 'ranking': showRanking = false; break;
     case 'teams': showTeamRanking = false; break;
     case 'archivedraft': archiveExtraDraft = null; archiveRoundDraft = null; archiveRemoveConfirm = null; archiveSubDraft = null; break;
+    case 'archiveextras': archiveExtrasView = false; break;
     case 'archive': showArchive = false; break;
     case 'extra': extraDraft = null; break;
     case 'pairedit': pairEdit = null; break;
