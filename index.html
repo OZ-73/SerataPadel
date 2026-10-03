@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v31">
+<meta name="app-version" content="v32">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -3187,7 +3187,7 @@ function playerProfileView(id){
   const winHistory = [];
   let cumW = 0, cumM = 0;
   const glickoSlice = [];
-  const sideStats = { Sx:{m:0,w:0}, Dx:{m:0,w:0} }, sideByPartner = {};
+  const sideStats = { Sx:{m:0,w:0,e:0,me:0}, Dx:{m:0,w:0,e:0,me:0} }, sideByPartner = {};
 
   archive.forEach((a, aIdx) => {
     if(a.excluded) return;
@@ -3209,11 +3209,16 @@ function playerProfileView(id){
       const side = pos === 0 ? 'Sx' : 'Dx';
       const r = matchWinner(m.s1, m.s2, m.tb);
       const wv = r === 0.5 ? 0.5 : (((r === 1) === (iA >= 0)) ? 1 : 0);
+      // Vittorie attese: probabilità prevista dai rating (che includono il compagno) di vincere quella partita.
+      const pe = (typeof m.pA === 'number') ? (iA >= 0 ? m.pA : 1 - m.pA) : null;
       sideStats[side].m++; sideStats[side].w += wv;
+      if(pe !== null){ sideStats[side].e += pe; sideStats[side].me++; }
       const partner = mine.find(x => x !== id);
       if(partner){
-        if(!sideByPartner[partner]) sideByPartner[partner] = { Sx:{m:0,w:0}, Dx:{m:0,w:0} };
-        sideByPartner[partner][side].m++; sideByPartner[partner][side].w += wv;
+        if(!sideByPartner[partner]) sideByPartner[partner] = { Sx:{m:0,w:0,e:0,me:0}, Dx:{m:0,w:0,e:0,me:0} };
+        const cell = sideByPartner[partner][side];
+        cell.m++; cell.w += wv;
+        if(pe !== null){ cell.e += pe; cell.me++; }
       }
     }));
     archiveGames(a).forEach(gm => {
@@ -3334,16 +3339,28 @@ function playerProfileView(id){
   html += '</div>';
   if(sideStats.Sx.m + sideStats.Dx.m > 0){
     const pc = o => o.m ? Math.round(o.w / o.m * 100) + '%' : '—';
+    const f1 = x => (Math.round(x * 10) / 10).toFixed(1).replace('.', ',');
+    // "vittorie / attese": rende l'idea di quanto si rende rispetto a quanto previsto dai rating, compagno compreso
+    const vsExp = o => {
+      if(!o.me) return '';
+      const d = o.w - o.e;
+      return 'vittorie '+fmtWins(o.w)+' su '+o.m+' · attese '+f1(o.e)+' ('+(d >= 0 ? '+' : '−')+f1(Math.abs(d))+')';
+    };
     html += '<p class="section-label" style="margin-top:14px;">Lato di gioco (solo partite con lato registrato)</p>';
     ['Sx','Dx'].forEach(sd => {
-      html += '<div class="stat-box"><div><p style="margin:0;font-size:12px;color:var(--ink-dim);">'+(sd==='Sx'?'Sinistra (Sx)':'Destra (Dx)')+'</p><p style="margin:4px 0 0;font-weight:600;">'+sideStats[sd].m+(sideStats[sd].m===1?' partita':' partite')+'</p></div><div class="val">'+pc(sideStats[sd])+'<span style="font-size:11px;font-weight:400;color:var(--ink-dim);"> V</span></div></div>';
+      const o = sideStats[sd];
+      html += '<div class="stat-box"><div><p style="margin:0;font-size:12px;color:var(--ink-dim);">'+(sd==='Sx'?'Sinistra (Sx)':'Destra (Dx)')+'</p><p style="margin:4px 0 0;font-weight:600;">'+o.m+(o.m===1?' partita':' partite')+'</p>'
+        + (vsExp(o) ? '<p style="margin:3px 0 0;font-size:12px;color:var(--ink-dim);">'+vsExp(o)+'</p>' : '')
+        + '</div><div class="val">'+pc(o)+'<span style="font-size:11px;font-weight:400;color:var(--ink-dim);"> V</span></div></div>';
     });
     const few = sideStats.Sx.m < 5 || sideStats.Dx.m < 5;
     const rows = Object.keys(sideByPartner).map(k => ({ k, tot: sideByPartner[k].Sx.m + sideByPartner[k].Dx.m })).filter(x => x.tot >= 2).sort((a,b) => b.tot - a.tot).slice(0, 6);
+    const cellTxt = (sd, o) => sd+' '+o.m+(o.me ? ' ('+fmtWins(o.w)+' V, att. '+f1(o.e)+')' : ' ('+pc(o)+')');
     rows.forEach(x => {
       const o = sideByPartner[x.k], nm = roster[x.k] ? roster[x.k].name : x.k;
-      html += '<p class="hint" style="margin:6px 0 0;">con '+esc(nm)+': Sx '+o.Sx.m+' ('+pc(o.Sx)+') · Dx '+o.Dx.m+' ('+pc(o.Dx)+')</p>';
+      html += '<p class="hint" style="margin:6px 0 0;">con '+esc(nm)+': '+cellTxt('Sx', o.Sx)+' · '+cellTxt('Dx', o.Dx)+'</p>';
     });
+    html += '<p class="hint" style="margin-top:8px;">"Attese" = vittorie previste dai rating, compagno compreso: se le vittorie superano le attese, in quel lato o con quel compagno rendi più del previsto.</p>';
     if(few) html += '<p class="hint" style="margin-top:8px;">Poche partite per lato: i numeri sono solo indicativi.</p>';
   }
   html += '<button class="ghost" style="margin-top:1rem;" onclick="closePlayerProfile()">Chiudi scheda</button>';
