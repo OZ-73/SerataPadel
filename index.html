@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v30">
+<meta name="app-version" content="v31">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -451,6 +451,37 @@ function ensureArchiveIds(){
 }
 
 // Partite di un torneo archiviato che contano per i rating: turni (peso 1) + extra (con il peso salvato).
+// Lati (Sx/Dx) di una partita archiviata a squadre fisse. L'ordine "normale" è quello dei giocatori nella squadra (Sx, Dx).
+function matchBaseIds(a, m){
+  return { a: m.pa || teamIdsFor(a, m.aId, m.a), b: m.pb || teamIdsFor(a, m.bId, m.b) };
+}
+function matchSwapFlags(a, m){
+  const base = matchBaseIds(a, m);
+  const okBase = base.a && base.b && base.a.length === 2 && base.b.length === 2;
+  if(!okBase) return { usable:false, rec:false, A:false, B:false, base };
+  if(!m.sides || !m.sides.a || !m.sides.b) return { usable:true, rec:false, A:false, B:false, base };
+  return { usable:true, rec:true, A: m.sides.a[0] !== base.a[0], B: m.sides.b[0] !== base.b[0], base };
+}
+function archiveSidesMissing(a){
+  if(a.mode && a.mode !== 'fixed') return 0;
+  let n = 0;
+  (a.history || []).forEach(h => h.matches.forEach(m => { const f = matchSwapFlags(a, m); if(f.usable && !f.rec) n++; }));
+  return n;
+}
+// Registra i lati di tutte le partite senza lato, assumendo l'ordine normale dei giocatori nella squadra.
+function registerArchiveSides(i){
+  const a = archive[i]; if(!a) return;
+  const n = archiveSidesMissing(a);
+  if(!n) return;
+  if(!confirm('Registrare i lati di '+n+(n===1?' partita':' partite')+' come da ordine dei giocatori nella squadra (primo = Sx, secondo = Dx)? Poi puoi correggere le singole partite con "Correggi".')) return;
+  (a.history || []).forEach(h => h.matches.forEach(m => {
+    const f = matchSwapFlags(a, m);
+    if(f.usable && !f.rec) m.sides = { a: f.base.a.slice(), b: f.base.b.slice() };
+  }));
+  saveArchive();
+  dataMsg = 'Lati registrati.';
+  render();
+}
 function archiveGames(a){
   const out = [];
   (a.history || []).forEach(h => h.matches.forEach(m => {
@@ -1703,7 +1734,18 @@ function saveArchiveEdit(i){
       if(!sc || !scoreIsPlausible(sc[0], sc[1])){ err.textContent = 'Turno '+a.history[hi].round+': punteggio non valido (numeri interi; sopra il 6 lo scarto è al massimo 2).'; return; }
       const tbr = readTb('ea_'+hi+'_'+mi+'_tb1', 'ea_'+hi+'_'+mi+'_tb2', sc);
       if(!tbr.ok){ err.textContent = 'Turno '+a.history[hi].round+': sul 6-6 serve il punteggio del tie-break (7 con almeno 2 di scarto).'; return; }
-      updates.push(() => { a.history[hi].matches[mi].s1 = sc[0]; a.history[hi].matches[mi].s2 = sc[1]; a.history[hi].matches[mi].tb = tbr.tb; });
+      const chkA = document.getElementById('ea_'+hi+'_'+mi+'_swA'), chkB = document.getElementById('ea_'+hi+'_'+mi+'_swB');
+      updates.push(() => {
+        const mm = a.history[hi].matches[mi];
+        mm.s1 = sc[0]; mm.s2 = sc[1]; mm.tb = tbr.tb;
+        if(chkA && chkB){
+          const f = matchSwapFlags(a, mm);
+          // senza lati registrati e senza spunte la partita resta "non registrata"
+          if(f.usable && (f.rec || chkA.checked || chkB.checked)){
+            mm.sides = { a: chkA.checked ? f.base.a.slice().reverse() : f.base.a.slice(), b: chkB.checked ? f.base.b.slice().reverse() : f.base.b.slice() };
+          }
+        }
+      });
     }
   }
   for(let xi = 0; xi < (a.extras||[]).length; xi++){
@@ -1915,10 +1957,30 @@ function moveArchiveMatchToExtra(i, hi, mi){
 
 // Corpo comune a ogni scheda dell'archivio (turni, extra, correzione/eliminazione, variazioni di rating):
 // uguale per tornei a squadre fisse e per Americano/Messicano, perché entrambi salvano m.a/m.b/s1/s2 come stringhe.
+function swapTag(a, m){
+  if(a.mode && a.mode !== 'fixed') return '';
+  const f = matchSwapFlags(a, m);
+  return (f.rec && (f.A || f.B)) ? ' <span class="hint" style="font-size:11.5px;" title="Lati Sx/Dx invertiti ('+(f.A && f.B ? 'entrambe le squadre' : (f.A ? 'prima squadra' : 'seconda squadra'))+')">⇄</span>' : '';
+}
+function archiveSwapRow(a, m, hi, mi){
+  if(a.mode && a.mode !== 'fixed') return '';
+  const f = matchSwapFlags(a, m);
+  if(!f.usable) return '';
+  const tip = 'title="Spunta se in questa partita la squadra ha giocato coi lati Sx/Dx scambiati"';
+  let out = '<div class="swap-row">'
+    + '<label '+tip+'><input type="checkbox" id="ea_'+hi+'_'+mi+'_swA" '+(f.A?'checked':'')+' /><span>Lati invertiti</span></label>'
+    + '<label class="right" '+tip+'><input type="checkbox" id="ea_'+hi+'_'+mi+'_swB" '+(f.B?'checked':'')+' /><span>Lati invertiti</span></label></div>';
+  if(!f.rec) out += '<p class="hint" style="margin:0;font-size:11.5px;">Lati non registrati: se spunti una squadra, per l\'altra si assume l\'ordine normale.</p>';
+  return out;
+}
 function archiveDetailBody(a, i){
   let html = '';
   html += '<label style="display:flex;align-items:center;gap:8px;margin:4px 0 10px;font-size:13.5px;"><input type="checkbox" '+(a.excluded?'checked':'')+' onchange="toggleArchiveExclude('+i+')" style="width:18px;height:18px;accent-color:var(--ball);flex-shrink:0;" /> Escludi questo torneo da Elo, Glicko-2 e classifica squadre</label>';
   html += '<button class="secondary" style="margin:0 0 12px;" onclick="shareArchiveResults('+i+')">Condividi risultati di questo torneo</button>';
+  const sidesMissing = (editingArchiveIdx === i) ? 0 : archiveSidesMissing(a);
+  if(sidesMissing > 0){
+    html += '<button class="secondary" style="margin:0 0 12px;" onclick="registerArchiveSides('+i+')">Registra i lati Sx/Dx ('+sidesMissing+(sidesMissing===1?' partita':' partite')+' senza lato)</button>';
+  }
   if(archiveRemoveConfirm && archiveRemoveConfirm.i === i){
     html += '<div class="banner warn" style="margin:4px 0 10px;"><p style="margin:0 0 10px;">Eliminare '+esc(archiveRemoveConfirm.desc)+'?</p><div style="display:flex;gap:8px;"><button class="primary" style="background:var(--danger);color:#fff;" onclick="confirmArchiveRemove()">Sì, elimina</button><button class="ghost" style="margin-top:0;" onclick="cancelArchiveRemoveConfirm()">Annulla</button></div></div>';
   }
@@ -1932,9 +1994,9 @@ function archiveDetailBody(a, i){
     html += '<p class="section-label" style="margin-top:10px;">Turno '+h.round+'</p>';
     h.matches.forEach((m,mi) => {
       if(editing){
-        html += '<div class="edit-match"><p class="edit-match-name">'+esc(m.a)+' <span style="opacity:.7;">vs</span> '+esc(m.b)+'</p>'+scoreInputs('ea_'+hi+'_'+mi+'_1','ea_'+hi+'_'+mi+'_2',m.s1,m.s2,'ea_'+hi+'_'+mi+'_tb1','ea_'+hi+'_'+mi+'_tb2','ea_'+hi+'_'+mi+'_tbrow',m.tb)+'</div>';
+        html += '<div class="edit-match"><p class="edit-match-name">'+esc(m.a)+' <span style="opacity:.7;">vs</span> '+esc(m.b)+'</p>'+scoreInputs('ea_'+hi+'_'+mi+'_1','ea_'+hi+'_'+mi+'_2',m.s1,m.s2,'ea_'+hi+'_'+mi+'_tb1','ea_'+hi+'_'+mi+'_tb2','ea_'+hi+'_'+mi+'_tbrow',m.tb)+archiveSwapRow(a, m, hi, mi)+'</div>';
       } else {
-        html += '<div class="history-match"><span>'+m.a+' vs '+m.b+pairStrengthShort(m.a.split(' & '),m.b.split(' & '))+'</span><span class="extra-side">'+m.s1+' &ndash; '+m.s2+(m.tb?' <span class="tb-inline">(tb '+m.tb[0]+'-'+m.tb[1]+')</span>':'')+upsetTag(m)+' <button class="small" title="Sposta tra le partite extra" onclick="moveArchiveMatchToExtra('+i+','+hi+','+mi+')">→ extra</button><button class="small danger" onclick="askRemoveArchiveRoundMatch('+i+','+hi+','+mi+')">✕</button></span></div>';
+        html += '<div class="history-match"><span>'+m.a+' vs '+m.b+pairStrengthShort(m.a.split(' & '),m.b.split(' & '))+'</span><span class="extra-side">'+m.s1+' &ndash; '+m.s2+(m.tb?' <span class="tb-inline">(tb '+m.tb[0]+'-'+m.tb[1]+')</span>':'')+upsetTag(m)+swapTag(a, m)+' <button class="small" title="Sposta tra le partite extra" onclick="moveArchiveMatchToExtra('+i+','+hi+','+mi+')">→ extra</button><button class="small danger" onclick="askRemoveArchiveRoundMatch('+i+','+hi+','+mi+')">✕</button></span></div>';
       }
     });
   });
