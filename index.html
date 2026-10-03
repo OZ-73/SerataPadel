@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v36">
+<meta name="app-version" content="v37">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1906,6 +1906,7 @@ function saveArchiveEdit(i){
     return { ok:true, tb: [Number(r1), Number(r2)] };
   };
   const updates = [];
+  const moves = [];
   for(let hi = 0; hi < (a.history||[]).length; hi++){
     for(let mi = 0; mi < a.history[hi].matches.length; mi++){
       const sc = readPair('ea_'+hi+'_'+mi+'_1', 'ea_'+hi+'_'+mi+'_2');
@@ -1913,6 +1914,8 @@ function saveArchiveEdit(i){
       const tbr = readTb('ea_'+hi+'_'+mi+'_tb1', 'ea_'+hi+'_'+mi+'_tb2', sc);
       if(!tbr.ok){ err.textContent = 'Turno '+a.history[hi].round+': sul 6-6 serve il punteggio del tie-break (7 con almeno 2 di scarto).'; return; }
       const chkA = document.getElementById('ea_'+hi+'_'+mi+'_swA'), chkB = document.getElementById('ea_'+hi+'_'+mi+'_swB');
+      const rdSel = document.getElementById('ea_'+hi+'_'+mi+'_rd');
+      if(rdSel && rdSel.value !== String(a.history[hi].round)) moves.push({ hi, mi, to: rdSel.value });
       updates.push(() => {
         const mm = a.history[hi].matches[mi];
         mm.s1 = sc[0]; mm.s2 = sc[1]; mm.tb = tbr.tb;
@@ -1938,7 +1941,12 @@ function saveArchiveEdit(i){
       x.weight = rating==='full' ? 1 : (rating==='reduced' ? EXTRA_K_FACTOR : 0);
     });
   }
+  if(moves.length){
+    const conflict = archiveMovesConflict(a, moves);
+    if(conflict){ err.textContent = 'Turno '+conflict.round+': '+conflict.who+' giocherebbe due volte. Scegli un altro turno.'; return; }
+  }
   updates.forEach(fn => fn());
+  if(moves.length) archiveApplyMoves(a, moves);
   if(!a.mode || a.mode === 'fixed'){ recomputeTeamAggregates(a); }
   recomputeRatings();
   ratingSummary = null;
@@ -2361,6 +2369,66 @@ function modeBarSync(){
     el.style.display = 'flex';
   } else { el.style.display = 'none'; el.innerHTML = ''; }
 }
+// Spostare una partita archiviata in un altro turno (modalità "Correggi"): serve quando è stata registrata nel turno sbagliato.
+function archiveMoveRoundRow(a, hi, mi){
+  const cur = a.history[hi].round;
+  const opts = a.history.map(h => '<option value="'+h.round+'"'+(h.round === cur ? ' selected' : '')+'>Turno '+h.round+'</option>').join('');
+  return '<div class="swap-row" style="grid-template-columns:auto 1fr;align-items:center;"><span>Spostala in</span><select id="ea_'+hi+'_'+mi+'_rd">'+opts+'<option value="new">Nuovo turno (in coda)</option></select></div>';
+}
+function matchIdsForRound(a, m){
+  if(!a.mode || a.mode === 'fixed') return [ 't'+m.aId, 't'+m.bId ];
+  return (m.pa || []).concat(m.pb || []);
+}
+function archiveMoveLabel(a, id){
+  if(String(id).startsWith('t') && (!a.mode || a.mode === 'fixed')){ const tm = a.teams[Number(String(id).slice(1))]; return tm ? tm.name : 'una squadra'; }
+  return (roster[id] && roster[id].name) || id;
+}
+// Controlla che dopo gli spostamenti nessuna squadra (o giocatore) giochi due volte nello stesso turno.
+function archiveMovesConflict(a, moves){
+  const target = new Map();
+  moves.forEach(mv => target.set(mv.hi+'|'+mv.mi, mv.to));
+  const newRound = a.history.reduce((mx, h) => Math.max(mx, h.round || 0), 0) + 1;
+  const byRound = {};
+  let found = null;
+  a.history.forEach((h, hi) => h.matches.forEach((m, mi) => {
+    const to = target.has(hi+'|'+mi) ? target.get(hi+'|'+mi) : h.round;
+    const rn = to === 'new' ? newRound : Number(to);
+    if(!byRound[rn]) byRound[rn] = new Set();
+    for(const id of matchIdsForRound(a, m)){
+      if(byRound[rn].has(id)){ if(!found) found = { round: rn, who: archiveMoveLabel(a, id) }; }
+      byRound[rn].add(id);
+    }
+  }));
+  return found;
+}
+function archiveApplyMoves(a, moves){
+  const target = new Map();
+  moves.forEach(mv => target.set(mv.hi+'|'+mv.mi, mv.to));
+  const newRoundNo = a.history.reduce((mx, h) => Math.max(mx, h.round || 0), 0) + 1;
+  const rounds = new Map();
+  a.history.forEach(h => rounds.set(h.round, { ...h, matches: [] }));
+  a.history.forEach((h, hi) => h.matches.forEach((m, mi) => {
+    const key = hi+'|'+mi;
+    let rn = h.round;
+    if(target.has(key)){
+      rn = target.get(key) === 'new' ? newRoundNo : Number(target.get(key));
+      if(!rounds.has(rn)) rounds.set(rn, { round: rn, resting: [], matches: [] });
+      // chi gioca in questo turno non può risultare a riposo
+      const used = matchIdsForRound(a, m).map(id => (String(id).startsWith('t') && (!a.mode || a.mode === 'fixed')) ? Number(String(id).slice(1)) : id);
+      const r = rounds.get(rn);
+      r.resting = (r.resting || []).filter(x => !used.includes(x));
+    }
+    rounds.get(rn).matches.push(m);
+  }));
+  rounds.forEach(r => {   // chi gioca in un turno non può risultare a riposo in quello stesso turno
+    const used = [];
+    r.matches.forEach(m => matchIdsForRound(a, m).forEach(id => used.push((String(id).startsWith('t') && (!a.mode || a.mode === 'fixed')) ? Number(String(id).slice(1)) : id)));
+    r.resting = (r.resting || []).filter(x => !used.includes(x));
+  });
+  a.history = [...rounds.values()].filter(h => h.matches.length > 0).sort((x, y) => x.round - y.round);
+  a.history.forEach(h => h.matches.forEach((m, k) => { m.court = k; }));
+  a.roundsPlayed = a.history.length;
+}
 function archiveSwapRow(a, m, hi, mi){
   if(a.mode && a.mode !== 'fixed') return '';
   const f = matchSwapFlags(a, m);
@@ -2393,7 +2461,7 @@ function archiveDetailBody(a, i){
     html += '<p class="section-label" style="margin-top:10px;">Turno '+h.round+'</p>';
     h.matches.forEach((m,mi) => {
       if(editing){
-        html += '<div class="edit-match"><p class="edit-match-name">'+esc(m.a)+' <span style="opacity:.7;">vs</span> '+esc(m.b)+'</p>'+scoreInputs('ea_'+hi+'_'+mi+'_1','ea_'+hi+'_'+mi+'_2',m.s1,m.s2,'ea_'+hi+'_'+mi+'_tb1','ea_'+hi+'_'+mi+'_tb2','ea_'+hi+'_'+mi+'_tbrow',m.tb)+archiveSwapRow(a, m, hi, mi)+'</div>';
+        html += '<div class="edit-match"><p class="edit-match-name">'+esc(m.a)+' <span style="opacity:.7;">vs</span> '+esc(m.b)+'</p>'+scoreInputs('ea_'+hi+'_'+mi+'_1','ea_'+hi+'_'+mi+'_2',m.s1,m.s2,'ea_'+hi+'_'+mi+'_tb1','ea_'+hi+'_'+mi+'_tb2','ea_'+hi+'_'+mi+'_tbrow',m.tb)+archiveSwapRow(a, m, hi, mi)+archiveMoveRoundRow(a, hi, mi)+'</div>';
       } else {
         html += '<div class="history-match"><span>'+m.a+' vs '+m.b+pairStrengthShort(m.a.split(' & '),m.b.split(' & '))+'</span><span class="extra-side">'+m.s1+' &ndash; '+m.s2+(m.tb?' <span class="tb-inline">(tb '+m.tb[0]+'-'+m.tb[1]+')</span>':'')+upsetTag(m)+swapTag(a, m)+' <button class="small" title="Sposta tra le partite extra" onclick="moveArchiveMatchToExtra('+i+','+hi+','+mi+')">→ extra</button><button class="small danger" onclick="askRemoveArchiveRoundMatch('+i+','+hi+','+mi+')">✕</button></span></div>';
       }
