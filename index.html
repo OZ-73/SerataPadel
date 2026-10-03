@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v33">
+<meta name="app-version" content="v35">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -186,6 +186,7 @@
   .upset{color:var(--ball-dark);font-size:12px;font-weight:600;white-space:nowrap;}
   .prov{font-size:10.5px;font-weight:600;color:var(--ink-dim);border:1px solid var(--ink-dim);border-radius:6px;padding:0 4px;margin-left:6px;vertical-align:middle;opacity:.85;}
   button.back-active{background:var(--ball);color:#0B3D3A;border-color:var(--ball);font-weight:700;}
+  .field-label{display:block;font-size:12px;color:var(--ink-dim);margin:6px 0 4px;}
   .swap-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;font-size:12.5px;color:var(--ink-dim);}
   .swap-row label{display:flex;align-items:center;gap:8px;min-height:32px;cursor:pointer;}
   .swap-row label.right{flex-direction:row-reverse;}
@@ -329,6 +330,8 @@ let dataMsg = '';
 let rosterMsg = '';
 let extraDraft = null;      // bozza della partita extra in inserimento (null = modulo chiuso)
 let roundDraft = {};        // punteggi del turno in corso non ancora salvati, per non perderli ad ogni render (es. aggiungendo una partita extra)
+let substOpen = false;      // pannello "Ritiri e sostituzioni" aperto
+let subDraft = null;        // sostituzione in corso: {teamId, slot} oppure null
 let pairEdit = null;        // bozza modifica abbinamenti turno: {type:'rotating'|'fixed', courts:[...]} oppure null
 let ratingSummary = null;   // variazioni di rating mostrate dopo la chiusura di un torneo
 let pendingMode = 'fixed';  // scelta nella schermata di setup: 'fixed' | 'americano' | 'messicano' (non salvata)
@@ -909,6 +912,7 @@ function startTournament(){
   extraDraft = null;
   roundDraft = {};
   pairEdit = null;
+  substOpen = false; subDraft = null;
   teams.forEach(tm => {
     t.restCounts[tm.id] = 0;
     t.courtCounts[tm.id] = new Array(courts).fill(0);
@@ -1090,6 +1094,8 @@ function undoLastRound(){
     if(m.court !== undefined) restoredMatches[m.court] = [m.aId, m.bId];
   });
 
+  // Tornando indietro si annullano anche i ritiri avvenuti dopo quel turno.
+  t.teams.forEach(tm => { if(tm.out && tm.outFrom > last.round){ delete tm.out; delete tm.outFrom; } });
   t.currentMatches = restoredMatches.filter(x => x !== undefined);
   t.restingThisRound = last.resting || [];
   roundDraft = {};
@@ -1115,7 +1121,7 @@ function generateRound(){
     return;
   }
 
-  const teams = t.teams;
+  const teams = activeTeams();   // le squadre ritirate non giocano più
   const matchesPerRound = Math.min(t.courts, Math.floor(teams.length/2));
   const restingCount = teams.length - matchesPerRound*2;
 
@@ -1170,6 +1176,119 @@ function setRoundSwap(idx, which, checked){
 function setRoundScore(idx, field, val){
   if(!roundDraft[idx]) roundDraft[idx] = {};
   roundDraft[idx][field] = val;
+}
+
+// ---------- ritiri e sostituzioni (squadre fisse) ----------
+function openSubstPanel(){ substOpen = true; subDraft = null; render(); }
+function closeSubstPanel(){ substOpen = false; subDraft = null; render(); }
+function openSubstitute(teamId, slot){ subDraft = { teamId, slot }; render(); }
+function cancelSubstitute(){ subDraft = null; render(); }
+function substError(msg){ const el = document.getElementById('substErr'); if(el) el.textContent = msg; }
+// Il sostituto prende il posto (e il lato Sx/Dx) del giocatore, da subito: la partita in corso, se c'è, la gioca lui.
+// Le partite già salvate restano a nome di chi le ha giocate (ogni partita conserva i suoi giocatori).
+function confirmSubstitute(){
+  if(!subDraft) return;
+  const tm = t.teams.find(x => x.id === subDraft.teamId);
+  if(!tm || tm.out) return;
+  const sel = document.getElementById('subSelect'), inp = document.getElementById('subNew');
+  const typed = cleanText(inp ? inp.value : '').trim();
+  const chosen = sel ? sel.value : '';
+  const newName = typed || chosen;
+  if(!newName){ substError('Scegli un giocatore dalla rubrica o scrivi un nuovo nome.'); return; }
+  const oldName = tm.players[subDraft.slot];
+  const others = new Set();
+  activeTeams().forEach(x => x.players.forEach((pl, i) => { if(!(x.id === tm.id && i === subDraft.slot)) others.add(slug(pl)); }));
+  if(slug(newName) === slug(oldName)){ substError('È lo stesso giocatore.'); return; }
+  if(others.has(slug(newName))){ substError(newName+' sta già giocando in questo torneo.'); return; }
+  upsertPlayer(newName);
+  const id = findIdByName(newName);
+  const finalName = id && roster[id] ? roster[id].name : newName;
+  const pending = t.currentMatches.length > 0;
+  tm.players[subDraft.slot] = finalName;
+  tm.name = tm.players.join(' & ');
+  tm.subs = (tm.subs || []).concat([{ from: pending ? t.round : t.round + 1, out: oldName, in: finalName }]);
+  saveRoster();
+  pairEdit = null; subDraft = null;
+  saveTournament();
+  render();
+}
+// La squadra esce dal torneo: non gioca più, i suoi risultati restano. Se aveva una partita in corso, viene annullata
+// e l'avversaria riposa in quel turno (si può comunque usare "Cambia abbinamenti").
+function withdrawTeam(teamId){
+  const tm = t.teams.find(x => x.id === teamId);
+  if(!tm || tm.out) return;
+  if(activeTeams().length - 1 < 2){ substError('Servono almeno 2 squadre in gara: non si può ritirare questa squadra.'); return; }
+  if(!confirm('Ritirare '+tm.name+'? Non giocherà più turni; i risultati già ottenuti restano nella classifica e nell\'archivio.')) return;
+  const pending = t.currentMatches.length > 0;
+  tm.out = true;
+  tm.outFrom = pending ? t.round : t.round + 1;
+  if(pending){
+    const keep = [], draftNew = {};
+    let oppId = null;
+    t.currentMatches.forEach((m, i) => {
+      if(m[0] === teamId || m[1] === teamId){
+        oppId = m[0] === teamId ? m[1] : m[0];
+        const k = pairKey(m[0], m[1]), at = (t.played || []).lastIndexOf(k);
+        if(at >= 0) t.played.splice(at, 1);   // la partita non si è giocata: la coppia non conta come già vista
+      } else {
+        if(roundDraft[i]) draftNew[keep.length] = roundDraft[i];
+        keep.push(m);
+      }
+    });
+    t.currentMatches = keep;
+    roundDraft = draftNew;
+    t.restingThisRound = (t.restingThisRound || []).filter(id => id !== teamId);
+    if(keep.length === 0){
+      // nessuna partita rimasta: il turno non si gioca, si torna a prima di generarlo
+      (t.restingThisRound || []).forEach(id => { t.restCounts[id] = Math.max(0, (t.restCounts[id] || 0) - 1); });
+      t.restingThisRound = [];
+      t.round = Math.max(0, t.round - 1);
+    } else if(oppId !== null){
+      t.restingThisRound.push(oppId);
+      t.restCounts[oppId] = (t.restCounts[oppId] || 0) + 1;
+    }
+  }
+  if(t.useClassicSchedule){ t.useClassicSchedule = false; delete t.classicSchedule; }   // il girone non è più completo
+  pairEdit = null; subDraft = null;
+  saveTournament();
+  render();
+}
+function substNotes(){
+  let html = '';
+  t.teams.forEach(tm => {
+    (tm.subs || []).forEach(sb => { html += '<p class="hint" style="margin:6px 0 0;">Sostituzione: '+esc(sb.out)+' &rarr; '+esc(sb.in)+' (dal turno '+sb.from+')</p>'; });
+    if(tm.out) html += '<p class="hint" style="margin:6px 0 0;"><b>'+esc(tm.name)+'</b> ritirata (dal turno '+tm.outFrom+')</p>';
+  });
+  return html;
+}
+function substSection(){
+  let html = '<section>';
+  if(!substOpen){
+    html += '<button class="ghost" onclick="openSubstPanel()">Ritiri e sostituzioni</button>' + substNotes();
+    return html + '</section>';
+  }
+  html += '<p class="section-label">Ritiri e sostituzioni</p>';
+  html += '<p class="hint">Sostituzione: il nuovo giocatore prende il posto (e il lato Sx/Dx) da subito. Le partite già giocate restano a nome di chi le ha giocate. Ritiro: la squadra non gioca più e i suoi risultati restano.</p>';
+  activeTeams().forEach(tm => {
+    html += '<div class="match-card" style="margin-bottom:10px;"><p class="match-court">'+esc(tm.name)+'</p>';
+    if(subDraft && subDraft.teamId === tm.id){
+      const used = new Set(); activeTeams().forEach(x => x.players.forEach(pl => used.add(slug(pl))));
+      const names = Object.keys(roster).map(k => roster[k].name).filter(n => !used.has(slug(n))).sort((a,b) => a.localeCompare(b));
+      html += '<p style="margin:0 0 8px;">Chi prende il posto di <b>'+esc(tm.players[subDraft.slot])+'</b>?</p>';
+      html += '<select id="subSelect"><option value="">— scegli dalla rubrica —</option>'+names.map(n => '<option value="'+esc(n)+'">'+esc(n)+'</option>').join('')+'</select>';
+      html += '<input id="subNew" type="text" placeholder="oppure scrivi un nuovo nome" style="margin-top:8px;" />';
+      html += '<div class="btn-pair" style="margin-top:10px;"><button class="ghost" onclick="cancelSubstitute()">Annulla</button><button class="primary" onclick="confirmSubstitute()">Conferma</button></div>';
+    } else {
+      html += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
+      tm.players.forEach((pl, i) => { html += '<button class="small" onclick="openSubstitute('+tm.id+','+i+')">Sostituisci '+esc(pl)+'</button>'; });
+      html += '<button class="small danger" onclick="withdrawTeam('+tm.id+')">Ritira squadra</button></div>';
+    }
+    html += '</div>';
+  });
+  html += substNotes();
+  html += '<p class="err" id="substErr"></p>';
+  html += '<button class="ghost" onclick="closeSubstPanel()">Chiudi</button></section>';
+  return html;
 }
 
 // ---------- forzatura manuale degli abbinamenti nel turno in corso (fissi + Americano/Messicano) ----------
@@ -1228,8 +1347,9 @@ function setFixedTeamSlot(court, side, teamId){
   courts[court][side] = (val === null || isNaN(val)) ? null : val;
   render();
 }
+function activeTeams(){ return t.teams.filter(tm => !tm.out); }
 function pairEditTeams(){
-  return t.teams.slice();   // anche le squadre a riposo: scegliendole, quella sostituita passa a riposo
+  return activeTeams();   // anche le squadre a riposo: scegliendole, quella sostituita passa a riposo
 }
 function fixedTeamSelect(court, side, teams){
   const cur = pairEdit.courts[court][side];
@@ -1259,7 +1379,7 @@ function applyPairEdit(){
     t.currentMatches = courts.map(c => [c.a, c.b]);
     // Chi riposa può cambiare: aggiorna i contatori dei riposi.
     const oldRest = (t.restingThisRound || []).slice();
-    const newRest = t.teams.map(tm => tm.id).filter(id => !ids.includes(id));
+    const newRest = activeTeams().map(tm => tm.id).filter(id => !ids.includes(id));
     oldRest.forEach(id => { if(!newRest.includes(id)) t.restCounts[id] = Math.max(0, (t.restCounts[id]||0) - 1); });
     newRest.forEach(id => { if(!oldRest.includes(id)) t.restCounts[id] = (t.restCounts[id]||0) + 1; });
     t.restingThisRound = newRest;
@@ -1324,7 +1444,7 @@ function submitResults(){
     const pa = t1.players.map(resolveId), pb = t2.players.map(resolveId);
     // Lato di gioco: l'ordine nella squadra è Sx/Dx; la spunta "lati invertiti" lo capovolge per questa partita.
     const sides = { a: rd.swA ? pa.slice().reverse() : pa, b: rd.swB ? pb.slice().reverse() : pb };
-    const rec = {aId:t1.id, bId:t2.id, a:t1.name, b:t2.name, s1, s2, tb, court:idx, sides};
+    const rec = {aId:t1.id, bId:t2.id, a:t1.name, b:t2.name, s1, s2, tb, court:idx, pa, pb, sides};
     if(av !== null && bv !== null) rec.pA = Math.round(winProb(av, bv) * 1000) / 1000;
     roundResults.push(rec);
   });
@@ -1356,8 +1476,8 @@ function finishTournament(){
       courts: t.courts,
       maxRounds: t.maxRounds,
       roundsPlayed: t.round,
-      teams: t.teams.map(tm => ({ name: tm.name, playerIds: tm.players.map(resolveId), wins: tm.wins, setsWon: tm.setsWon, setsLost: tm.setsLost })),
-      history: t.history.map(h => ({ ...h, matches: h.matches.map(m => ({ ...m, pa: teamPlayers(m.aId).map(resolveId), pb: teamPlayers(m.bId).map(resolveId) })) })),
+      teams: t.teams.map(tm => { const o = { name: tm.name, playerIds: tm.players.map(resolveId), wins: tm.wins, setsWon: tm.setsWon, setsLost: tm.setsLost }; if(tm.out){ o.out = true; o.outFrom = tm.outFrom; } if(tm.subs && tm.subs.length) o.subs = tm.subs; return o; }),
+      history: t.history.map(h => ({ ...h, matches: h.matches.map(m => ({ ...m, pa: m.pa || teamPlayers(m.aId).map(resolveId), pb: m.pb || teamPlayers(m.bId).map(resolveId) })) })),
       extras: (t.extras || []).map(x => ({ ...x, idsA: x.teamA.map(resolveId), idsB: x.teamB.map(resolveId) })),
       ratingChanges: []
     };
@@ -1373,6 +1493,7 @@ function finishTournament(){
   extraDraft = null;
   roundDraft = {};
   pairEdit = null;
+  substOpen = false; subDraft = null;
   saveTournament();
   resetArmed = false;
   render();
@@ -1568,6 +1689,22 @@ function dataSection(){
 
 function teamKeyIds(ids){ return [...ids].sort().join('|'); }
 
+// Statistiche per coppia ricavate dalle singole partite (servono quando una squadra ha avuto sostituzioni).
+function pairStatsFromMatches(matches, teamIdx){
+  const res = {};
+  matches.forEach(m => {
+    [['a', m.aId, m.pa, m.s1, m.s2], ['b', m.bId, m.pb, m.s2, m.s1]].forEach(([side, tid, ids, g, go]) => {
+      if(tid !== teamIdx || !ids || ids.length < 2) return;
+      const key = teamKeyIds(ids);
+      if(!res[key]) res[key] = { ids, matches:0, wins:0, setsWon:0, setsLost:0 };
+      const r = res[key];
+      r.matches++; r.setsWon += g; r.setsLost += go;
+      const w = matchWinner(m.s1, m.s2, m.tb);
+      if((side === 'a' && w === 1) || (side === 'b' && w === 0)) r.wins++;
+    });
+  });
+  return Object.values(res);
+}
 function teamStats(list, includeLive){
   list = list || archive;
   if(includeLive === undefined) includeLive = true;
@@ -1589,7 +1726,12 @@ function teamStats(list, includeLive){
   list.forEach(a => {
     if(a.mode && a.mode !== 'fixed') return;   // Americano/Messicano non hanno squadre fisse: non entrano nella classifica squadre
     if(a.excluded) return;                      // torneo escluso dalle classifiche
-    (a.teams||[]).forEach(tm => {
+    (a.teams||[]).forEach((tm, ti) => {
+      if(tm.subs && tm.subs.length){
+        const all = []; (a.history||[]).forEach(h => h.matches.forEach(m => all.push(m)));
+        pairStatsFromMatches(all, ti).forEach(r => addToMap(null, null, r.ids, r.wins, r.setsWon, r.setsLost, r.matches));
+        return;
+      }
       let matches = 0;
       (a.history||[]).forEach(h => h.matches.forEach(m => { if(m.a===tm.name || m.b===tm.name) matches++; }));
       const plist = tm.players || tm.name.split(' & ');
@@ -1597,7 +1739,14 @@ function teamStats(list, includeLive){
     });
   });
   if(includeLive && !t.unofficial && t.teams && t.teams.length){
-    t.teams.forEach(tm => addToMap(tm.name, tm.players, tm.players.map(resolveId), tm.wins, tm.setsWon, tm.setsLost, tm.matchesPlayed||0));
+    t.teams.forEach(tm => {
+      if(tm.subs && tm.subs.length){
+        const all = []; (t.history||[]).forEach(h => h.matches.forEach(m => all.push(m)));
+        pairStatsFromMatches(all, tm.id).forEach(r => addToMap(null, null, r.ids, r.wins, r.setsWon, r.setsLost, r.matches));
+        return;
+      }
+      addToMap(tm.name, tm.players, tm.players.map(resolveId), tm.wins, tm.setsWon, tm.setsLost, tm.matchesPlayed||0);
+    });
   }
   return Object.values(map);
 }
@@ -1676,9 +1825,10 @@ function archiveParticipantNames(a){
 let deleteArchiveArmed = null;
 let archiveExtraDraft = null;  // bozza della partita extra aggiunta a posteriori a un torneo archiviato
 let archiveRoundDraft = null;  // bozza di un turno ufficiale (Americano/Messicano) aggiunto a posteriori, con abbinamenti forzati
+let archiveSubDraft = null;      // sostituzione di un giocatore in un torneo archiviato: { idx } oppure null
 let archiveRemoveConfirm = null;  // { type:'extra'|'round', i, id|hi/mi, desc } — conferma richiesta prima di eliminare una singola partita
-function toggleArchiveExpand(idx){ expandedArchiveIdx = (expandedArchiveIdx===idx) ? null : idx; editingArchiveIdx = null; deleteArchiveArmed = null; archiveExtraDraft = null; archiveRoundDraft = null; archiveRemoveConfirm = null; render(); }
-function startArchiveEdit(i){ editingArchiveIdx = i; deleteArchiveArmed = null; archiveExtraDraft = null; archiveRoundDraft = null; archiveRemoveConfirm = null; render(); }
+function toggleArchiveExpand(idx){ expandedArchiveIdx = (expandedArchiveIdx===idx) ? null : idx; editingArchiveIdx = null; deleteArchiveArmed = null; archiveSubDraft = null; archiveExtraDraft = null; archiveRoundDraft = null; archiveRemoveConfirm = null; render(); }
+function startArchiveEdit(i){ editingArchiveIdx = i; deleteArchiveArmed = null; archiveSubDraft = null; archiveExtraDraft = null; archiveRoundDraft = null; archiveRemoveConfirm = null; render(); }
 function cancelArchiveEdit(){ editingArchiveIdx = null; render(); }
 function askDeleteArchive(i){ deleteArchiveArmed = i; editingArchiveIdx = null; render(); }
 function cancelDeleteArchive(){ deleteArchiveArmed = null; render(); }
@@ -1980,6 +2130,112 @@ function swapTag(a, m){
   const f = matchSwapFlags(a, m);
   return (f.rec && (f.A || f.B)) ? ' <span class="hint" style="font-size:11.5px;" title="Lati Sx/Dx invertiti ('+(f.A && f.B ? 'entrambe le squadre' : (f.A ? 'prima squadra' : 'seconda squadra'))+')">⇄</span>' : '';
 }
+// ---------- sostituzione di un giocatore in un torneo archiviato ----------
+function archiveParticipants(a){
+  const ids = [];
+  const add = id => { if(id && !ids.includes(id)) ids.push(id); };
+  (a.teams || []).forEach(tm => (tm.playerIds || []).forEach(add));
+  (a.players || []).forEach(add);
+  (a.history || []).forEach(h => h.matches.forEach(m => { (m.pa || []).forEach(add); (m.pb || []).forEach(add); }));
+  (a.extras || []).forEach(x => { (x.idsA || []).forEach(add); (x.idsB || []).forEach(add); });
+  const nm = archiveIdNames(a);
+  return ids.map(id => ({ id, name: (roster[id] && roster[id].name) || nm[id] || id })).sort((x, y) => x.name.localeCompare(y.name));
+}
+function openArchiveSub(i){ archiveSubDraft = { idx:i }; render(); }
+function closeArchiveSub(){ archiveSubDraft = null; render(); }
+function archiveSubError(msg){ const el = document.getElementById('asErr'); if(el) el.textContent = msg; }
+// segmenti "A & B" di un nome di squadra: sostituisce quello nella posizione indicata (se il numero di segmenti coincide)
+function replaceNameSegment(str, pos, newName, count){
+  const segs = String(str || '').split(' & ');
+  if(pos < 0 || segs.length !== count) return str;
+  segs[pos] = newName;
+  return segs.join(' & ');
+}
+function archiveSubApply(a, oldId, newId, from){
+  ensureArchiveIds();   // garantisce i giocatori di ogni partita anche nei vecchi archivi
+  const newName = roster[newId].name;
+  const out = { matches:0, extras:0 };
+  const swap = ids => ids.map(x => x === oldId ? newId : x);
+  (a.history || []).forEach(h => {
+    if(from && h.round < from) return;
+    h.matches.forEach(m => {
+      const inA = (m.pa || []).indexOf(oldId), inB = (m.pb || []).indexOf(oldId);
+      if(inA < 0 && inB < 0) return;
+      out.matches++;
+      if(inA >= 0){ m.a = replaceNameSegment(m.a, inA, newName, m.pa.length); m.pa = swap(m.pa); }
+      if(inB >= 0){ m.b = replaceNameSegment(m.b, inB, newName, m.pb.length); m.pb = swap(m.pb); }
+      if(m.sides){ m.sides = { a: swap(m.sides.a || []), b: swap(m.sides.b || []) }; }
+    });
+  });
+  if(!from){
+    (a.extras || []).forEach(x => {
+      const inA = (x.idsA || []).indexOf(oldId), inB = (x.idsB || []).indexOf(oldId);
+      if(inA < 0 && inB < 0) return;
+      out.extras++;
+      if(inA >= 0){ x.teamA = x.teamA.slice(); x.teamA[inA] = newName; x.idsA = swap(x.idsA); }
+      if(inB >= 0){ x.teamB = x.teamB.slice(); x.teamB[inB] = newName; x.idsB = swap(x.idsB); }
+    });
+  }
+  const oldName = (roster[oldId] && roster[oldId].name) || oldId;
+  (a.teams || []).forEach(tm => {
+    const pos = (tm.playerIds || []).indexOf(oldId);
+    if(pos < 0) return;
+    tm.name = replaceNameSegment(tm.name, pos, newName, tm.playerIds.length);
+    if(tm.players){ tm.players = tm.players.slice(); tm.players[pos] = newName; }
+    tm.playerIds = swap(tm.playerIds);
+    if(from) tm.subs = (tm.subs || []).concat([{ from, out: oldName, in: newName }]);
+  });
+  if(a.players){
+    const still = [];
+    (a.history || []).forEach(h => h.matches.forEach(m => still.push(...(m.pa || []), ...(m.pb || []))));
+    (a.extras || []).forEach(x => still.push(...(x.idsA || []), ...(x.idsB || [])));
+    a.players = swap(a.players);
+    if(from && !still.includes(oldId)) a.players = a.players.filter(x => x !== oldId);   // non ha più partite: esce dall'elenco
+    a.players = a.players.filter((x, k) => a.players.indexOf(x) === k);
+  }
+  return out;
+}
+function confirmArchiveSub(){
+  if(!archiveSubDraft) return;
+  const i = archiveSubDraft.idx, a = archive[i];
+  if(!a) return;
+  const oldId = (document.getElementById('asOld') || {}).value;
+  const typed = cleanText((document.getElementById('asNewName') || {}).value || '').trim();
+  const chosen = (document.getElementById('asNewSel') || {}).value || '';
+  const newName = typed || chosen;
+  const from = Number((document.getElementById('asFrom') || {}).value) || 0;
+  if(!oldId){ archiveSubError('Scegli il giocatore da sostituire.'); return; }
+  if(!newName){ archiveSubError('Scegli il nuovo giocatore dalla rubrica o scrivi un nome.'); return; }
+  const parts = archiveParticipants(a);
+  if(parts.some(x => slug(x.name) === slug(newName))){ archiveSubError(newName+' partecipa già a questo torneo.'); return; }
+  const oldName = (parts.find(x => x.id === oldId) || {}).name || oldId;
+  if(!confirm('Sostituire '+oldName+' con '+newName+(from ? ' dal turno '+from+' in poi' : ' in tutto il torneo')+'? I rating di tutti i tornei si ricalcolano.')) return;
+  upsertPlayer(newName);
+  const newId = findIdByName(newName);
+  if(!newId){ archiveSubError('Nome non valido.'); return; }
+  const res = archiveSubApply(a, oldId, newId, from);
+  if(res.matches + res.extras === 0){ archiveSubError(oldName+' non ha partite'+(from ? ' dal turno '+from+' in poi' : '')+' in questo torneo.'); return; }
+  recomputeRatings();
+  saveRoster();
+  saveArchive();
+  archiveSubDraft = null;
+  dataMsg = 'Giocatore sostituito: '+res.matches+(res.matches===1?' partita':' partite')+(res.extras ? ' e '+res.extras+(res.extras===1?' extra':' extra') : '')+'.';
+  render();
+}
+function archiveSubPanel(a, i){
+  const parts = archiveParticipants(a);
+  const used = new Set(parts.map(x => slug(x.name)));
+  const free = Object.keys(roster).map(k => roster[k].name).filter(n => !used.has(slug(n))).sort((x, y) => x.localeCompare(y));
+  let html = '<div class="match-card" style="margin:0 0 12px;"><p class="match-court">Sostituisci un giocatore</p>';
+  html += '<label class="field-label">Chi esce</label><select id="asOld"><option value="">— scegli —</option>'+parts.map(x => '<option value="'+esc(x.id)+'">'+esc(x.name)+'</option>').join('')+'</select>';
+  html += '<label class="field-label" style="margin-top:8px;">Chi entra</label><select id="asNewSel"><option value="">— scegli dalla rubrica —</option>'+free.map(n => '<option value="'+esc(n)+'">'+esc(n)+'</option>').join('')+'</select>';
+  html += '<input id="asNewName" type="text" placeholder="oppure scrivi un nuovo nome" style="margin-top:8px;" />';
+  html += '<label class="field-label" style="margin-top:8px;">Da quando</label><select id="asFrom"><option value="0">In tutto il torneo</option>'+(a.history || []).filter(h => h.round > 1).map(h => '<option value="'+h.round+'">Dal turno '+h.round+' in poi</option>').join('')+'</select>';
+  html += '<p class="hint" style="margin:8px 0 0;">Le partite interessate passano al nuovo giocatore (lati Sx/Dx compresi) e i rating si ricalcolano. Le partite extra cambiano solo scegliendo "In tutto il torneo".</p>';
+  html += '<p class="err" id="asErr"></p>';
+  html += '<div class="btn-pair" style="margin-top:8px;"><button class="ghost" onclick="closeArchiveSub()">Annulla</button><button class="primary" onclick="confirmArchiveSub()">Conferma</button></div></div>';
+  return html;
+}
 function archiveSwapRow(a, m, hi, mi){
   if(a.mode && a.mode !== 'fixed') return '';
   const f = matchSwapFlags(a, m);
@@ -2080,6 +2336,8 @@ function archiveDetailBody(a, i){
   } else if(deleteArchiveArmed === i){
     html += '<div class="banner warn" style="margin-top:12px;"><p style="margin:0 0 10px;">Eliminare questo torneo? I rating si ricalcolano senza di lui.</p><div style="display:flex;gap:8px;"><button class="primary" style="background:var(--danger);color:#fff;" onclick="confirmDeleteArchive('+i+')">Sì, elimina</button><button class="ghost" style="margin-top:0;" onclick="cancelDeleteArchive()">Annulla</button></div></div>';
   } else {
+    if(archiveSubDraft && archiveSubDraft.idx === i){ html += archiveSubPanel(a, i); }
+    else { html += '<button class="ghost" style="margin-top:12px;" onclick="openArchiveSub('+i+')">Sostituisci un giocatore</button>'; }
     html += '<div class="btn-pair" style="margin-top:12px;"><button class="ghost" onclick="startArchiveEdit('+i+')">Correggi risultati</button><button class="ghost" onclick="askDeleteArchive('+i+')">Elimina torneo</button></div>';
   }
   if(a.ratingChanges && a.ratingChanges.length){
@@ -2110,7 +2368,11 @@ function archiveFixedCard(a, i){
   html += '</div>';
   sorted.forEach((tm,pos) => {
     const r = ranks[pos];
-    html += '<div class="history-match"><span><b>'+rankLabel(r)+'. '+tm.name+'</b></span><span>'+tm.wins+' V · '+tm.setsWon+'-'+tm.setsLost+'</span></div>';
+    html += '<div class="history-match"><span><b>'+rankLabel(r)+'. '+esc(tm.name)+'</b>'+(tm.out ? ' <span class="prov">ritirata</span>' : '')+'</span><span>'+tm.wins+' V · '+tm.setsWon+'-'+tm.setsLost+'</span></div>';
+  });
+  a.teams.forEach(tm => {
+    (tm.subs || []).forEach(sb => { html += '<p class="hint" style="margin:6px 0 0;">Sostituzione in '+esc(tm.name)+': '+esc(sb.out)+' &rarr; '+esc(sb.in)+' (dal turno '+sb.from+')</p>'; });
+    if(tm.out) html += '<p class="hint" style="margin:6px 0 0;">'+esc(tm.name)+' ritirata dal turno '+tm.outFrom+'</p>';
   });
   if(expandedArchiveIdx === i){ html += archiveDetailBody(a, i); }
   html += '</div>';
@@ -3736,6 +3998,8 @@ function renderMain(){
       html += '<button class="ghost" onclick="undoLastRound()">Torna al turno precedente</button></section>';
     }
 
+    if(!rotating){ html += substSection(); }
+
     if(t.round > 0 && rotating){
       const st = liveIndividualStats();
       const rows = t.players.map(id => ({ id, name: playerName(id), ...st[id] })).sort((a,b)=> b.wins-a.wins || (b.gW-b.gL)-(a.gW-a.gL) || b.gW-a.gW);
@@ -3752,7 +4016,7 @@ function renderMain(){
       html += '<section><p class="section-label">Classifica</p><table><tr><th>Squadra</th><th class="num">V</th><th class="num">Set</th></tr>';
       sorted.forEach((tm,i) => {
         const r = ranks[i];
-        html += '<tr class="pos-'+r.rank+'"><td><span class="rank'+(r.tied?' tied':'')+'">'+rankLabel(r)+'</span>'+tm.name+'</td><td class="num">'+tm.wins+'</td><td class="num">'+tm.setsWon+'-'+tm.setsLost+'</td></tr>';
+        html += '<tr class="pos-'+r.rank+'"><td><span class="rank'+(r.tied?' tied':'')+'">'+rankLabel(r)+'</span>'+esc(tm.name)+(tm.out ? ' <span class="prov">ritirata</span>' : '')+'</td><td class="num">'+tm.wins+'</td><td class="num">'+tm.setsWon+'-'+tm.setsLost+'</td></tr>';
       });
       html += '</table></section>';
     }
@@ -3822,6 +4086,7 @@ function navExitDisarm(){
 }
 function navLayers(){
   const L = [];
+  if(substOpen) L.push('subst');
   if(pairEdit) L.push('pairedit');
   if(extraDraft) L.push('extra');
   if(showDiag) L.push('ranking', 'diag');
@@ -3829,7 +4094,7 @@ function navLayers(){
   else if(showTeamRanking) L.push('teams');
   else if(showArchive){
     L.push('archive');
-    if(archiveExtraDraft || archiveRoundDraft || archiveRemoveConfirm) L.push('archivedraft');
+    if(archiveExtraDraft || archiveRoundDraft || archiveRemoveConfirm || archiveSubDraft) L.push('archivedraft');
   }
   if(viewingPlayerId) L.push('profile');
   if(kioskIsOpen()) L.push('kiosk');
@@ -3843,10 +4108,11 @@ function navCloseTop(){
     case 'diag': showDiag = false; showRanking = true; break;
     case 'ranking': showRanking = false; break;
     case 'teams': showTeamRanking = false; break;
-    case 'archivedraft': archiveExtraDraft = null; archiveRoundDraft = null; archiveRemoveConfirm = null; break;
+    case 'archivedraft': archiveExtraDraft = null; archiveRoundDraft = null; archiveRemoveConfirm = null; archiveSubDraft = null; break;
     case 'archive': showArchive = false; break;
     case 'extra': extraDraft = null; break;
     case 'pairedit': pairEdit = null; break;
+    case 'subst': substOpen = false; subDraft = null; break;
   }
 }
 function navCloseAll(){
