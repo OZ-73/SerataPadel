@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v32">
+<meta name="app-version" content="v33">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -240,6 +240,7 @@ let rankMode = (function(){ try{ const m = localStorage.getItem(LS_RANK_MODE); r
 function setRankMode(m){ rankMode = m; try{ localStorage.setItem(LS_RANK_MODE, m); }catch(e){} render(); }
 
 function normalizeTournament(obj){
+  obj = sanitizeDeep(obj);
   const base = { phase:'setup', courts:3, maxRounds:3, teams:[], round:0, played:[], currentMatches:[], history:[], restCounts:{}, courtCounts:{}, sideCounts:{}, lastMeetingCourt:{}, lastMeetingSide:{}, unofficial:false, useClassicSchedule:false, classicSchedule:null, restingThisRound:[], extras:[] };
   const merged = Object.assign({}, base, obj||{});
   merged.teams.forEach(tm => {
@@ -256,7 +257,7 @@ function normalizeTournament(obj){
 }
 
 function normalizeRoster(obj){
-  const r = obj || {};
+  const r = sanitizeDeep(obj || {});
   // Backup vecchi: chiave = slug del nome, con un campo .id separato. La chiave diventa l'id stesso,
   // così un solo identificatore vale ovunque (rubrica, squadre, archivio) e una rinomina non deve più spostare nulla.
   const legacy = Object.keys(r).some(k => r[k] && r[k].id && r[k].id !== k);
@@ -282,6 +283,7 @@ function normalizeRoster(obj){
 
 function normalizeArchive(arr){
   if(!Array.isArray(arr)) return [];
+  arr = sanitizeDeep(arr);
   return arr.map(a => Object.assign({ date:new Date().toISOString(), courts:0, maxRounds:0, roundsPlayed:0, teams:[], history:[], extras:[], ratingChanges:[] }, a));
 }
 
@@ -339,7 +341,7 @@ function findIdByName(name){
   return null;
 }
 function upsertPlayer(name){
-  const clean = name.trim();
+  const clean = cleanText(name).trim();
   if(!slug(clean)) return null;
   let id = findIdByName(clean);
   if(!id){
@@ -423,6 +425,17 @@ function gameScore(s1, s2, tb){
 
 function kFor(matches){ return matches < K_NEW_UNTIL ? K_NEW : (matches < K_MID_UNTIL ? K_MID : K_VET); }
 
+// Argomento stringa per un gestore inline (onclick="fn(...)"): letterale JS con le virgolette già convertite in entità HTML.
+function jsArg(x){ return esc(JSON.stringify(String(x))); }
+// Testo libero inserito dall'utente o letto da un file: niente tag (< >) e niente virgolette doppie, che romperebbero gli attributi.
+function cleanText(str){ return String(str).replace(/[<>]/g, '').replace(/"/g, "'").replace(/[\u0000-\u001f]/g, ' '); }
+function sanitizeDeep(v){
+  if(typeof v === 'string') return cleanText(v);
+  if(Array.isArray(v)) return v.map(sanitizeDeep);
+  if(v && typeof v === 'object'){ const o = {}; Object.keys(v).forEach(k => { o[k] = sanitizeDeep(v[k]); }); return o; }
+  return v;
+}
+const SAFE_ID_RE = /^[A-Za-z0-9_\-]{1,64}$/;
 function esc(str){ return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
 function teamIdsFor(a, id, name){
@@ -605,7 +618,7 @@ function standingsSort(a,b){
 
 function addNewPlayer(){
   const inp = document.getElementById('newPlayer');
-  const name = inp.value.trim();
+  const name = cleanText(inp.value).trim();
   if(!name) return;
   upsertPlayer(name);
   const id = findIdByName(name);
@@ -621,7 +634,7 @@ function deselectAll(){ selected.clear(); saveSelected(); render(); }
 
 function startRename(key){ editingKey = key; rosterMsg = ''; render(); }
 function saveRename(key){
-  const val = document.getElementById('rename_'+key).value.trim();
+  const val = cleanText(document.getElementById('rename_'+key).value).trim();
   if(!val){ editingKey = null; rosterMsg = ''; render(); return; }
   const collision = findIdByName(val);
   if(collision && collision !== key){ rosterMsg = 'Esiste già un partecipante con questo nome.'; render(); return; }
@@ -1194,7 +1207,7 @@ function pairEditSelect(court, side, slot, players){
   const cur = pairEdit.courts[court][side][slot];
   const taken = [];
   pairEdit.courts.forEach((c,ci) => { ['pa','pb'].forEach(s => c[s].forEach((id,si) => { if(!(ci===court && s===side && si===slot) && id) taken.push(id); })); });
-  let html = '<select onchange="setPairSlot('+court+',\''+side+'\','+slot+',this.value)"><option value="">—</option>';
+  let html = '<select onchange="setPairSlot('+court+','+jsArg(side)+','+slot+',this.value)"><option value="">—</option>';
   players.forEach(p => {
     html += '<option value="'+p.id+'"'+(cur===p.id?' selected':'')+'>'+esc(p.name)+(taken.includes(p.id)?' (occupato)':'')+'</option>';
   });
@@ -1222,7 +1235,7 @@ function fixedTeamSelect(court, side, teams){
   const cur = pairEdit.courts[court][side];
   const taken = [];
   pairEdit.courts.forEach((c,ci) => { ['a','b'].forEach(s => { if(!(ci===court && s===side) && c[s] !== null && c[s] !== undefined) taken.push(c[s]); }); });
-  let html = '<select onchange="setFixedTeamSlot('+court+',\''+side+'\',this.value)"><option value="">—</option>';
+  let html = '<select onchange="setFixedTeamSlot('+court+','+jsArg(side)+',this.value)"><option value="">—</option>';
   teams.forEach(tm => {
     html += '<option value="'+tm.id+'"'+(cur===tm.id?' selected':'')+'>'+esc(tm.name)+(taken.includes(tm.id)?' (occupata)':'')+'</option>';
   });
@@ -1477,6 +1490,11 @@ function triggerImport(){ const el = document.getElementById('importFile'); if(e
 function applyImportedData(data){
   const rf = data.roster, tf = data.tournament, af = data.archive;
   if(!rf && !tf && !af) throw new Error('il file non contiene dati riconoscibili');
+  if(rf && typeof rf === 'object'){
+    // Nei backup nuovi la chiave della rubrica è l'id: deve essere un identificativo semplice (nei vecchi, con chiave = nome, viene sostituita).
+    const legacy = Object.keys(rf).some(k => rf[k] && rf[k].id && rf[k].id !== k);
+    if(!legacy && Object.keys(rf).some(k => !SAFE_ID_RE.test(k))) throw new Error('identificativi non ammessi nel file');
+  }
   if(rf){ roster = normalizeRoster(rf); saveRoster(); }
   if(tf){ t = normalizeTournament(tf); saveTournament(); extraDraft = null; roundDraft = {}; pairEdit = null; }
   if(af){ archive = normalizeArchive(af); }
@@ -1793,7 +1811,7 @@ function setArchiveExtraField(field, val){
 function archiveExtraSelect(field, players){
   const d = archiveExtraDraft;
   const taken = ['a1','a2','b1','b2'].filter(f => f!==field).map(f => d[f]).filter(Boolean);
-  let html = '<select onchange="setArchiveExtraField(\''+field+'\',this.value)"><option value="">—</option>';
+  let html = '<select onchange="setArchiveExtraField('+jsArg(field)+',this.value)"><option value="">—</option>';
   players.forEach(n => { html += '<option value="'+esc(n)+'"'+(d[field]===n?' selected':'')+'>'+esc(n)+(taken.includes(n)?' (occupato)':'')+'</option>'; });
   return html + '</select>';
 }
@@ -1875,7 +1893,7 @@ function setArchiveRoundField(field, val){
 function archiveRoundSelect(field, players){
   const d = archiveRoundDraft;
   const taken = ['a1','a2','b1','b2'].filter(f => f!==field).map(f => d[f]).filter(Boolean);
-  let html = '<select onchange="setArchiveRoundField(\''+field+'\',this.value)"><option value="">—</option>';
+  let html = '<select onchange="setArchiveRoundField('+jsArg(field)+',this.value)"><option value="">—</option>';
   players.forEach(n => { html += '<option value="'+esc(n)+'"'+(d[field]===n?' selected':'')+'>'+esc(n)+(taken.includes(n)?' (occupato)':'')+'</option>'; });
   return html + '</select>';
 }
@@ -1986,7 +2004,7 @@ function archiveDetailBody(a, i){
   }
   const editing = (editingArchiveIdx === i);
   const scoreInputs = (idA, idB, v1, v2, tbIdA, tbIdB, tbRowId, tb) => {
-    let out = '<div class="edit-match-score"><input id="'+idA+'" type="number" min="0" inputmode="numeric" value="'+v1+'" oninput="toggleTbRow(\''+idA+'\',\''+idB+'\',\''+tbRowId+'\')" /><span class="dash">&ndash;</span><input id="'+idB+'" type="number" min="0" inputmode="numeric" value="'+v2+'" oninput="toggleTbRow(\''+idA+'\',\''+idB+'\',\''+tbRowId+'\')" /></div>';
+    let out = '<div class="edit-match-score"><input id="'+idA+'" type="number" min="0" inputmode="numeric" value="'+v1+'" oninput="toggleTbRow('+jsArg(idA)+','+jsArg(idB)+','+jsArg(tbRowId)+')" /><span class="dash">&ndash;</span><input id="'+idB+'" type="number" min="0" inputmode="numeric" value="'+v2+'" oninput="toggleTbRow('+jsArg(idA)+','+jsArg(idB)+','+jsArg(tbRowId)+')" /></div>';
     out += '<div class="tb-row" id="'+tbRowId+'" style="'+(isTiedSix(v1,v2)?'':'display:none;')+'"><span class="tb-label">Tie-break</span><input class="score-input tb-input" id="'+tbIdA+'" type="number" min="0" inputmode="numeric" value="'+(tb?tb[0]:'')+'" /><span class="dash">&ndash;</span><input class="score-input tb-input" id="'+tbIdB+'" type="number" min="0" inputmode="numeric" value="'+(tb?tb[1]:'')+'" /></div>';
     return out;
   };
@@ -2171,7 +2189,7 @@ function archiveView(){
   if(!archiveOpenMonths){ archiveOpenMonths = new Set(groups.length ? [groups[0].key] : []); }
   groups.forEach(g => {
     const open = archiveOpenMonths.has(g.key);
-    html += '<button class="ghost" style="display:flex;justify-content:space-between;align-items:center;width:100%;margin-top:10px;" onclick="toggleArchiveMonth(\''+g.key+'\')"><b>'+g.label+' ('+g.items.length+')</b><span>'+(open?'▾':'▸')+'</span></button>';
+    html += '<button class="ghost" style="display:flex;justify-content:space-between;align-items:center;width:100%;margin-top:10px;" onclick="toggleArchiveMonth('+jsArg(g.key)+')"><b>'+g.label+' ('+g.items.length+')</b><span>'+(open?'▾':'▸')+'</span></button>';
     if(open){
       g.items.forEach(({a,i}) => {
         html += (a.mode && a.mode !== 'fixed') ? archiveRotatingCard(a, i) : archiveFixedCard(a, i);
@@ -2424,7 +2442,7 @@ function extraTag(x){
 function extraSelect(field, players){
   const d = extraDraft;
   const taken = ['a1','a2','b1','b2'].filter(f => f!==field).map(f => d[f]).filter(Boolean);
-  let html = '<select onchange="setExtraField(\''+field+'\',this.value)"><option value="">—</option>';
+  let html = '<select onchange="setExtraField('+jsArg(field)+',this.value)"><option value="">—</option>';
   players.forEach(n => {
     html += '<option value="'+esc(n)+'"'+(d[field]===n?' selected':'')+'>'+esc(n)+(taken.includes(n)?' (occupato)':'')+'</option>';
   });
@@ -2497,22 +2515,22 @@ function rosterPanel(){
     html += '<div class="roster-list">';
     list.forEach(p => {
       html += '<div class="roster-row">';
-      html += '<input type="checkbox" '+(selected.has(p.key)?'checked':'')+' onchange="toggleSelected(\''+p.key+'\',this.checked)" />';
+      html += '<input type="checkbox" '+(selected.has(p.key)?'checked':'')+' onchange="toggleSelected('+jsArg(p.key)+',this.checked)" />';
       if(editingKey === p.key){
-        html += '<input class="rname rename-input" id="rename_'+p.key+'" type="text" value="'+esc(p.name)+'" onkeydown="if(event.key===\'Enter\'){saveRename(\''+p.key+'\')}" />';
-        html += '<input class="rating-input" id="ratingedit_'+p.key+'" type="number" step="1" inputmode="decimal" aria-label="Rating iniziale" value="'+(Math.round((p.elo0===undefined?START_ELO:p.elo0)*10)/10)+'" onkeydown="if(event.key===\'Enter\'){saveRename(\''+p.key+'\')}" />';
+        html += '<input class="rname rename-input" id="rename_'+p.key+'" type="text" value="'+esc(p.name)+'" onkeydown="if(event.key===\'Enter\'){saveRename('+jsArg(p.key)+')}" />';
+        html += '<input class="rating-input" id="ratingedit_'+p.key+'" type="number" step="1" inputmode="decimal" aria-label="Rating iniziale" value="'+(Math.round((p.elo0===undefined?START_ELO:p.elo0)*10)/10)+'" onkeydown="if(event.key===\'Enter\'){saveRename('+jsArg(p.key)+')}" />';
         html += '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;margin-left:4px;" title="Il suo rating resta fisso al valore qui sopra: non si aggiorna mai coi risultati."><input type="checkbox" id="frozenedit_'+p.key+'" '+(p.frozen?'checked':'')+' style="width:16px;height:16px;accent-color:var(--ball);" /> ❄ Congelato</label>';
-        html += '<div class="actions"><button class="small" onclick="saveRename(\''+p.key+'\')">Salva</button></div>';
+        html += '<div class="actions"><button class="small" onclick="saveRename('+jsArg(p.key)+')">Salva</button></div>';
       } else if(deleteArmedKey === p.key){
         html += '<span class="rname rname-text">Eliminare '+p.name+'?</span>';
-        html += '<div class="actions"><button class="small danger" onclick="confirmDelete(\''+p.key+'\')">Elimina</button><button class="small" onclick="cancelDelete()">Annulla</button></div>';
+        html += '<div class="actions"><button class="small danger" onclick="confirmDelete('+jsArg(p.key)+')">Elimina</button><button class="small" onclick="cancelDelete()">Annulla</button></div>';
       } else {
         html += '<span class="rname rname-text">'+p.name+'</span>';
-        html += '<select class="side-select" onchange="setSide(\''+p.key+'\',this.value)">';
+        html += '<select class="side-select" onchange="setSide('+jsArg(p.key)+',this.value)">';
         [['','–'],['D','Dx'],['S','Sx']].forEach(([v,label]) => { html += '<option value="'+v+'"'+((p.side||'')===v?' selected':'')+'>'+label+'</option>'; });
         html += '</select>';
         html += '<span class="wr">'+Math.round(p.elo||START_ELO)+(p.frozen?' ❄':'')+'</span>';
-        html += '<div class="actions"><button class="small" onclick="startRename(\''+p.key+'\')">Modifica</button><button class="small danger" onclick="askDelete(\''+p.key+'\')">✕</button></div>';
+        html += '<div class="actions"><button class="small" onclick="startRename('+jsArg(p.key)+')">Modifica</button><button class="small danger" onclick="askDelete('+jsArg(p.key)+')">✕</button></div>';
       }
       html += '</div>';
     });
@@ -3274,7 +3292,7 @@ function playerProfileView(id){
       name: roster[k] ? roster[k].name : k,
       matches: obj[k].matches,
       wr: obj[k].wins / obj[k].matches
-    })).filter(x => x.matches >= 2).sort((a,b) => asc ? (a.wr - b.wr) : (b.wr - a.wr));
+    })).filter(x => x.matches >= 2).sort((a,b) => (asc ? (a.wr - b.wr) : (b.wr - a.wr)) || (b.matches - a.matches) || a.name.localeCompare(b.name));
   }
   const bestPartners = ranked(partners, false);
   const nemeses = ranked(opponents, true);
@@ -3392,7 +3410,7 @@ function rankingView(){
       rows.forEach((r,i) => {
         const rk = ranks[i];
         html += '<div class="rank-row'+(rk.rank===1?' top1':'')+'"><span class="rank-num'+(rk.tied?' tied':'')+'">'+rankLabel(rk)+'</span>';
-        html += '<span class="rank-name clickable" onclick="openPlayerProfile(\''+r.id+'\')">'+esc(r.name)+'</span>'+provTag(r.id);
+        html += '<span class="rank-name clickable" onclick="openPlayerProfile('+jsArg(r.id)+')">'+esc(r.name)+'</span>'+provTag(r.id);
         html += arrow(mvG, r.id);
         html += '<span class="rank-elo">'+Math.round(r.rating)+'</span>';
         html += '<span class="rank-meta">±'+Math.round(r.rd)+' · '+r.games+'</span></div>';
@@ -3425,7 +3443,7 @@ function rankingView(){
         ranked.forEach((p,i) => {
           const r = ranks[i];
           html += '<div class="rank-row'+(r.rank===1?' top1':'')+'"><span class="rank-num'+(r.tied?' tied':'')+'">'+rankLabel(r)+'</span>';
-          html += '<span class="rank-name clickable" onclick="openPlayerProfile(\''+p.key+'\')">'+esc(p.name)+'</span>'+provTag(p.key);
+          html += '<span class="rank-name clickable" onclick="openPlayerProfile('+jsArg(p.key)+')">'+esc(p.name)+'</span>'+provTag(p.key);
           html += arrow(mvWin, p.key);
           html += '<span class="rank-elo">'+Math.round(winRate(p)*100)+'%</span>';
           html += '<span class="rank-meta">'+fmtWins(p.wins)+' / '+p.matches+'</span></div>';
@@ -3462,7 +3480,7 @@ function rankingView(){
       const wr = winRate(p);
       const r = ranks[i];
       html += '<div class="rank-row'+(r.rank===1?' top1':'')+'"><span class="rank-num'+(r.tied?' tied':'')+'">'+rankLabel(r)+'</span>';
-      html += '<span class="rank-name clickable" onclick="openPlayerProfile(\''+p.key+'\')">'+esc(p.name)+'</span>'+provTag(p.key);
+      html += '<span class="rank-name clickable" onclick="openPlayerProfile('+jsArg(p.key)+')">'+esc(p.name)+'</span>'+provTag(p.key);
       html += arrow(mvElo, p.key);
       html += '<span class="rank-elo">'+Math.round(p.elo||START_ELO)+'</span>';
       html += '<span class="rank-meta">'+(wr===null?'—':Math.round(wr*100)+'% · '+p.matches)+'</span></div>';
@@ -3581,7 +3599,7 @@ function renderMain(){
         html += '<div class="team-players">';
         ['p1','p2'].forEach((field,fi) => {
           html += '<div><p class="hint" style="margin:0 0 3px;font-size:11px;">'+(fi===0?'Sx':'Dx')+'</p>';
-          html += '<select onchange="assignSlot('+dt.id+',\''+field+'\',this.value)">';
+          html += '<select onchange="assignSlot('+dt.id+','+jsArg(field)+',this.value)">';
           html += '<option value=""'+(!dt[field]?' selected':'')+'>—</option>';
           options.forEach(name => {
             const owner = draftTeams.find(o => o.id!==dt.id && (o.p1===name || o.p2===name));
@@ -3686,9 +3704,9 @@ function renderMain(){
         const tbOpen = (rd.s1==='6' && rd.s2==='6');
         html += '<div class="match-card"><p class="match-court">Campo '+(idx+1)+'</p><div class="match-row">';
         html += '<span class="team-name">'+teamLabelHtml(nameA)+'</span>';
-        html += '<input class="score-input" id="s1_'+idx+'" type="number" min="0" inputmode="numeric" value="'+esc(rd.s1||'')+'" oninput="setRoundScore('+idx+',\'s1\',this.value); toggleTbRow(\'s1_'+idx+'\',\'s2_'+idx+'\',\'tbrow_'+idx+'\')" />';
+        html += '<input class="score-input" id="s1_'+idx+'" aria-label="Game '+esc(nameA)+'" type="number" min="0" inputmode="numeric" value="'+esc(rd.s1||'')+'" oninput="setRoundScore('+idx+',\'s1\',this.value); toggleTbRow(\'s1_'+idx+'\',\'s2_'+idx+'\',\'tbrow_'+idx+'\')" />';
         html += '<span class="dash">&ndash;</span>';
-        html += '<input class="score-input" id="s2_'+idx+'" type="number" min="0" inputmode="numeric" value="'+esc(rd.s2||'')+'" oninput="setRoundScore('+idx+',\'s2\',this.value); toggleTbRow(\'s1_'+idx+'\',\'s2_'+idx+'\',\'tbrow_'+idx+'\')" />';
+        html += '<input class="score-input" id="s2_'+idx+'" aria-label="Game '+esc(nameB)+'" type="number" min="0" inputmode="numeric" value="'+esc(rd.s2||'')+'" oninput="setRoundScore('+idx+',\'s2\',this.value); toggleTbRow(\'s1_'+idx+'\',\'s2_'+idx+'\',\'tbrow_'+idx+'\')" />';
         html += '<span class="team-name right">'+teamLabelHtml(nameB)+'</span></div>';
         html += '<div class="tb-row" id="tbrow_'+idx+'" style="'+(tbOpen?'':'display:none;')+'"><span class="tb-label">Tie-break</span><input class="score-input tb-input" id="tb1_'+idx+'" type="number" min="0" inputmode="numeric" value="'+esc(rd.tb1||'')+'" oninput="setRoundScore('+idx+',\'tb1\',this.value)" /><span class="dash">&ndash;</span><input class="score-input tb-input" id="tb2_'+idx+'" type="number" min="0" inputmode="numeric" value="'+esc(rd.tb2||'')+'" oninput="setRoundScore('+idx+',\'tb2\',this.value)" /></div>';
         if(!rotating){
