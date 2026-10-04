@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v37">
+<meta name="app-version" content="v40">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -288,7 +288,7 @@ function normalizeRoster(obj){
 function normalizeArchive(arr){
   if(!Array.isArray(arr)) return [];
   arr = sanitizeDeep(arr);
-  return arr.map(a => Object.assign({ date:new Date().toISOString(), courts:0, maxRounds:0, roundsPlayed:0, teams:[], history:[], extras:[], ratingChanges:[] }, a));
+  return arr.map(a => Object.assign({ date:new Date().toISOString(), courts:0, maxRounds:0, roundsPlayed:0, teams:[], history:[], extras:[], ratingChanges:[] }, a)).sort(archiveByDate);
 }
 
 function loadTournament(){
@@ -304,11 +304,38 @@ function loadRoster(){
 function saveRoster(){ try{ localStorage.setItem(LS_ROSTER, JSON.stringify(roster)); }catch(e){} }
 
 const LS_ARCHIVE = 'padel-archive-v4';
-const ARCHIVE_MAX = 300;
+const ARCHIVE_MAX = 1000;
 function loadArchive(){ try{ const raw = localStorage.getItem(LS_ARCHIVE); if(raw) return normalizeArchive(JSON.parse(raw)); }catch(e){} return []; }
 function saveArchive(){ try{ localStorage.setItem(LS_ARCHIVE, JSON.stringify(archive)); }catch(e){} }
 
 let archive = loadArchive();
+
+// ---------- periodo di calcolo delle classifiche ----------
+// I tornei prima della data di inizio restano in archivio ma non entrano in Elo, Glicko-2, % vittorie e classifica squadre.
+// base 'set' = ognuno parte dal suo rating iniziale impostato; '1000' = tutti da 1000 (i congelati tengono il loro valore).
+function archiveByDate(x, y){ return (Date.parse(x.date)||0) - (Date.parse(y.date)||0); }
+function sortArchive(){ archive.sort(archiveByDate); }
+function dateKey(d){
+  const x = new Date(d); if(isNaN(x)) return '';
+  return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');
+}
+const LS_CALC = 'padel-calc-v1';
+function cleanCalc(r){ return { from: (r && /^\d{4}-\d{2}-\d{2}$/.test(r.from)) ? r.from : '', base: (r && r.base === '1000') ? '1000' : 'set' }; }
+let calc = (function(){
+  try{ const raw = localStorage.getItem(LS_CALC); if(raw) return cleanCalc(JSON.parse(raw)); }catch(e){}
+  // prima volta: i tornei già presenti restano gli unici a contare, così le classifiche non cambiano
+  let min = ''; archive.forEach(a => { const k = dateKey(a.date); if(k && (!min || k < min)) min = k; });
+  return { from:min, base:'set' };
+})();
+function saveCalc(){ try{ localStorage.setItem(LS_CALC, JSON.stringify(calc)); }catch(e){} }
+saveCalc();
+function countsForRatings(a){ return !a.excluded && (!calc.from || dateKey(a.date) >= calc.from); }
+function excTag(a){ return a.excluded ? ' · escluso' : (!countsForRatings(a) ? ' · prima della data di inizio' : ''); }
+function startState(id){
+  const p = roster[id];
+  if(!p || (calc.base === '1000' && !p.frozen)) return { elo:START_ELO, matches:0, wins:0 };
+  return { elo:p.elo0, matches:p.matches0||0, wins:p.wins0||0 };
+}
 
 let t = loadTournament();
 let roster = loadRoster();
@@ -554,12 +581,10 @@ function computeRatingChanges(entries, snap, opts){
 
 // Rigioca in ordine tutti i tornei archiviati a partire dal rating iniziale di ciascuno e aggiorna la rubrica.
 function computeEloStates(list, writeRows, opts){
-  list = (list || archive).filter(a => !a.excluded);
+  list = (list || archive).filter(countsForRatings);
   const byId = roster;  // la chiave della rubrica È l'id
   const state = {};
-  const st = id => state[id] || (state[id] = byId[id]
-    ? { elo:byId[id].elo0, matches:byId[id].matches0||0, wins:byId[id].wins0||0 }
-    : { elo:START_ELO, matches:0, wins:0 });
+  const st = id => state[id] || (state[id] = startState(id));
   list.forEach((a, pi) => {
     const entries = archiveGames(a);
     entries.forEach(e => e.idsA.concat(e.idsB).forEach(st));
@@ -584,15 +609,16 @@ function recomputeRatings(){
   const state = computeEloStates(archive, true);  // gli esclusi sono filtrati dentro computeEloStates
   Object.keys(roster).forEach(id => {
     const p = roster[id], sv = state[id];
-    p.elo = sv ? sv.elo : p.elo0;
-    p.matches = sv ? sv.matches : (p.matches0||0);
-    p.wins = sv ? sv.wins : (p.wins0||0);
+    const s0 = startState(id);
+    p.elo = sv ? sv.elo : s0.elo;
+    p.matches = sv ? sv.matches : s0.matches;
+    p.wins = sv ? sv.wins : s0.wins;
   });
 }
 
 // Se l'archivio supera il limite, il torneo più vecchio esce ma il suo effetto resta nel rating iniziale (così nessun rating cambia).
 function foldArchiveEntryIntoBase(a){
-  if(a.excluded) return;   // già fuori dai calcoli: esce dall'archivio senza toccare nulla
+  if(!countsForRatings(a)) return;   // già fuori dai calcoli: esce dall'archivio senza toccare nulla
   const byId = roster;  // la chiave della rubrica È l'id
   const entries = archiveGames(a, true);   // nel ripiegamento contano sempre le extra, a prescindere dalla modalità confronto
   const snap = {};
@@ -1485,7 +1511,7 @@ function finishTournament(){
       extras: (t.extras || []).map(x => ({ ...x, idsA: x.teamA.map(resolveId), idsB: x.teamB.map(resolveId) })),
       ratingChanges: []
     };
-    archive.push(entry);
+    archive.push(entry); sortArchive();
     while(archive.length > ARCHIVE_MAX){ foldArchiveEntryIntoBase(archive.shift()); }
     // I rating non si aggiornano a mano: si ricalcolano dall'archivio (che ora include questo torneo).
     recomputeRatings();
@@ -1545,7 +1571,7 @@ function timestampForFilename(){
 // Condivisione: un unico file di testo (JSON), perché i menu di condivisione dei telefoni accettano i .txt (WhatsApp compreso)
 // ma spesso rifiutano gli .zip. Il salvataggio su file ("Scarica") resta un .zip. L'importazione legge entrambi i formati.
 function backupObject(){
-  return { app:'torneo-padel', version:APP_VERSION, exported:new Date().toISOString(), roster:roster, tournament:t, archive:archive };
+  return { app:'torneo-padel', version:APP_VERSION, exported:new Date().toISOString(), roster:roster, tournament:t, archive:archive, calc:calc };
 }
 function buildBackupBlob(type){
   return new Blob([JSON.stringify(backupObject(), null, 1)], { type: type || 'text/plain' });
@@ -1610,6 +1636,471 @@ async function exportData(){
   render();
 }
 
+// ---------- esportazione in Excel (.xlsx) ----------
+// Un .xlsx è un archivio zip di file XML: si scrive con JSZip (già incluso), senza altre librerie.
+// Il formato è lo stesso che leggerà l'importazione: i fogli "(sola lettura)" servono solo da consultazione e verranno ignorati.
+function xmlEsc(s){ return String(s).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function colLetter(n){ let s = ''; n++; while(n > 0){ const m = (n-1) % 26; s = String.fromCharCode(65+m) + s; n = Math.floor((n-1) / 26); } return s; }
+function sheetXml(sh, first){
+  const rows = sh.rows;
+  let x = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">';
+  x += '<sheetViews><sheetView workbookViewId="0"'+(first ? ' tabSelected="1"' : '')+'>'+(sh.freeze ? '<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>' : '')+'</sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>';
+  if(sh.widths) x += '<cols>'+sh.widths.map((w,i) => '<col min="'+(i+1)+'" max="'+(i+1)+'" width="'+w+'" customWidth="1"/>').join('')+'</cols>';
+  x += '<sheetData>';
+  rows.forEach((r, ri) => {
+    x += '<row r="'+(ri+1)+'">';
+    r.forEach((v, ci) => {
+      if(v === null || v === undefined || v === '') return;
+      const ref = colLetter(ci)+(ri+1), st = ri === 0 ? ' s="1"' : '';
+      if(typeof v === 'number' && isFinite(v)) x += '<c r="'+ref+'"'+st+'><v>'+v+'</v></c>';
+      else x += '<c r="'+ref+'"'+st+' t="inlineStr"><is><t xml:space="preserve">'+xmlEsc(v)+'</t></is></c>';
+    });
+    x += '</row>';
+  });
+  x += '</sheetData>';
+  if(sh.filter && rows.length > 1) x += '<autoFilter ref="A1:'+colLetter(rows[0].length-1)+rows.length+'"/>';
+  if(sh.lists && sh.lists.length) x += '<dataValidations count="'+sh.lists.length+'">'+sh.lists.map(l => '<dataValidation type="list" allowBlank="1" showErrorMessage="0" sqref="'+l.sqref+'"><formula1>'+xmlEsc(l.formula)+'</formula1></dataValidation>').join('')+'</dataValidations>';
+  return x + '</worksheet>';
+}
+// File XML dell'intera cartella di lavoro: { percorso: testo }.
+function xlsxFiles(sheets){
+  const NS = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"', RNS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  const H = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
+  const f = {};
+  f['[Content_Types].xml'] = H+'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+    + sheets.map((s,i) => '<Override PartName="/xl/worksheets/sheet'+(i+1)+'.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('')+'</Types>';
+  f['_rels/.rels'] = H+'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="'+RNS+'/officeDocument" Target="xl/workbook.xml"/></Relationships>';
+  f['xl/workbook.xml'] = H+'<workbook '+NS+' xmlns:r="'+RNS+'"><sheets>'+sheets.map((s,i) => '<sheet name="'+xmlEsc(s.name)+'" sheetId="'+(i+1)+'" r:id="rId'+(i+1)+'"/>').join('')+'</sheets></workbook>';
+  f['xl/_rels/workbook.xml.rels'] = H+'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+sheets.map((s,i) => '<Relationship Id="rId'+(i+1)+'" Type="'+RNS+'/worksheet" Target="worksheets/sheet'+(i+1)+'.xml"/>').join('')+'<Relationship Id="rId'+(sheets.length+1)+'" Type="'+RNS+'/styles" Target="styles.xml"/></Relationships>';
+  f['xl/styles.xml'] = H+'<styleSheet '+NS+'><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+  sheets.forEach((s,i) => { f['xl/worksheets/sheet'+(i+1)+'.xml'] = sheetXml(s, i === 0); });
+  return f;
+}
+// Chiave di ogni torneo nel file Excel: la data (AAAA-MM-GG); se nello stesso giorno ce ne sono più, dal secondo in poi si aggiunge -2, -3…
+function tournamentKeys(){
+  const seen = {};
+  return archive.map(a => { const d = dateKey(a.date); seen[d] = (seen[d] || 0) + 1; return seen[d] === 1 ? d : d+'-'+seen[d]; });
+}
+function exportSheets(){
+  const keys = tournamentKeys();
+  const nameOf = (a, nm) => id => (roster[id] && roster[id].name) || nm[id] || id;
+  const players = Object.values(roster).sort((x,y) => x.name.localeCompare(y.name));
+  const yn = v => v ? 'SI' : 'NO';
+  const sheets = [];
+  sheets.push({ name:'Istruzioni', widths:[110], rows:[
+    ['Torneo Padel - file Excel'],
+    ['Ogni torneo è identificato dalla data (AAAA-MM-GG); se nello stesso giorno ce ne sono due, il secondo ha il suffisso -2.'],
+    ['Partite: i giocatori di ogni squadra vanno scritti nell\'ordine Sx, Dx. I nomi devono coincidere con quelli del foglio Giocatori.'],
+    ['Il tie-break (TB) si compila solo sul 6-6. Peso delle partite extra: 1 = piena, 0,5 = ridotta, 0 = non conta per i rating.'],
+    ['I fogli con "(sola lettura)" sono solo da consultare: chi importa il file li ignora.'],
+    ['Modalità: Squadre fisse, Americano o Messicano. Escluso: SI = il torneo resta in archivio ma non entra nei calcoli.']
+  ] });
+  sheets.push({ name:'Giocatori', freeze:true, filter:true, widths:[24,16,12,12,8],
+    rows:[['Nome','Rating iniziale','Congelato','Nascosto','Lato']].concat(players.map(p => [p.name, p.elo0, yn(p.frozen), yn(p.hidden), p.side || ''])) });
+  sheets.push({ name:'Tornei', freeze:true, filter:true, widths:[14,16,8,14,10],
+    rows:[['Torneo','Modalità','Campi','Turni giocati','Escluso']].concat(archive.map((a,i) => {
+      const md = a.mode || 'fixed';
+      return [keys[i], md === 'fixed' ? 'Squadre fisse' : md.charAt(0).toUpperCase()+md.slice(1), a.courts || '', a.roundsPlayed || 0, yn(a.excluded)];
+    })) });
+  const partite = [['Torneo','Turno','A Sx','A Dx','B Sx','B Dx','Game A','Game B','TB A','TB B']];
+  const extra = [['Torneo','A Sx','A Dx','B Sx','B Dx','Game A','Game B','TB A','TB B','Peso']];
+  archive.forEach((a, i) => {
+    const rows = matchRowsOf(a);
+    rows.partite.forEach(r => partite.push([keys[i]].concat(r)));
+    rows.extra.forEach(r => extra.push([keys[i]].concat(r)));
+  });
+  sheets.push({ name:'Partite', freeze:true, filter:true, widths:[14,7,18,18,18,18,9,9,7,7], rows:partite,
+    lists:[{ sqref:'C2:F5000', formula:'Giocatori!$A$2:$A$300' }] });
+  sheets.push({ name:'Extra', freeze:true, filter:true, widths:[14,18,18,18,18,9,9,7,7,7], rows:extra,
+    lists:[{ sqref:'B2:E5000', formula:'Giocatori!$A$2:$A$300' }] });
+  const gl = {}; computeGlicko().forEach(r => { gl[r.id] = r.rating; });
+  const ids = Object.keys(roster).filter(id => roster[id].matches > 0).sort((x,y) => roster[y].elo - roster[x].elo || roster[x].name.localeCompare(roster[y].name));
+  sheets.push({ name:'Classifica (sola lettura)', freeze:true, widths:[24,10,10,10,10],
+    rows:[['Giocatore','Elo','Glicko-2','Partite','Vittorie']].concat(ids.map(id => [roster[id].name, roster[id].elo, gl[id] !== undefined ? Math.round(gl[id]*10)/10 : '', roster[id].matches, roster[id].wins])) });
+  const andamento = [['Torneo','Giocatore','Prima','Dopo','Partite']];
+  archive.forEach((a, i) => { if(countsForRatings(a)) (a.ratingChanges || []).forEach(r => andamento.push([keys[i], r.name, r.before, r.after, r.matches])); });
+  sheets.push({ name:'Andamento (sola lettura)', freeze:true, widths:[14,24,10,10,10], rows:andamento });
+  return sheets;
+}
+async function exportExcel(){
+  if(typeof JSZip === 'undefined'){ dataMsg = 'Esportazione Excel non disponibile: libreria non caricata.'; render(); return; }
+  dataMsg = 'Preparazione file Excel…';
+  render();
+  try{
+    const zip = new JSZip(), files = xlsxFiles(exportSheets());
+    Object.keys(files).forEach(p => zip.file(p, files[p]));
+    const blob = await zip.generateAsync({ type:'blob', mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', compression:'DEFLATE' });
+    const ok = await saveFile('torneo-padel-'+timestampForFilename()+'.xlsx', blob);
+    dataMsg = ok ? 'File Excel salvato.' : 'Esportazione annullata o non riuscita.';
+  }catch(e){
+    dataMsg = 'Esportazione non riuscita'+(e && e.message ? ': '+e.message : '')+'.';
+  }
+  render();
+}
+
+// ---------- importazione da Excel (.xlsx) ----------
+// Prima si legge il file e si costruisce un'ANTEPRIMA (nulla viene toccato); solo con "Applica" si scrive, dopo aver salvato una copia per "Annulla ultima importazione".
+// Un torneo si riconosce dalla data (colonna Torneo): se esiste già e le partite sono uguali resta com'è, se sono diverse viene aggiornato, se non esiste viene aggiunto.
+// Un torneo che manca nel file non viene mai toccato.
+const IMPORT_UNDO_KEY = 'padel-import-undo-v1';
+let importPlan = null;
+let importUndo = (function(){ try{ const r = localStorage.getItem(IMPORT_UNDO_KEY); if(r) return JSON.parse(r); }catch(e){} return null; })();
+
+async function readXlsx(buf){
+  const zip = await JSZip.loadAsync(buf);
+  const txt = async p => { const f = zip.file(p); return f ? await f.async('string') : null; };
+  const dom = s => new DOMParser().parseFromString(s, 'application/xml');
+  const tags = (n, tag) => Array.from(n.getElementsByTagNameNS('*', tag));
+  const wbx = await txt('xl/workbook.xml'), relx = await txt('xl/_rels/workbook.xml.rels');
+  if(!wbx || !relx) throw new Error('non è un file Excel (.xlsx)');
+  const target = {};
+  tags(dom(relx), 'Relationship').forEach(r => { target[r.getAttribute('Id')] = r.getAttribute('Target'); });
+  const ssx = await txt('xl/sharedStrings.xml'), shared = [];
+  if(ssx) tags(dom(ssx), 'si').forEach(si => shared.push(tags(si, 't').map(t => t.textContent).join('')));
+  const out = {};
+  for(const sh of tags(dom(wbx), 'sheet')){
+    const rid = sh.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id') || sh.getAttribute('r:id');
+    let path = target[rid]; if(!path) continue;
+    path = path.replace(/^\//, ''); if(!/^xl\//.test(path)) path = 'xl/'+path;
+    const sx = await txt(path); if(!sx) continue;
+    const rows = [];
+    tags(dom(sx), 'row').forEach(row => {
+      const arr = [];
+      tags(row, 'c').forEach(c => {
+        const m = /^([A-Z]+)/.exec(c.getAttribute('r') || ''); if(!m) return;
+        let ci = 0; for(const ch of m[1]) ci = ci*26 + (ch.charCodeAt(0)-64);
+        const t = c.getAttribute('t'), vEl = tags(c, 'v')[0], v = vEl ? vEl.textContent : '';
+        let val = '';
+        if(t === 's') val = shared[+v] !== undefined ? shared[+v] : '';
+        else if(t === 'inlineStr') val = tags(c, 't').map(x => x.textContent).join('');
+        else if(t === 'str') val = v;
+        else if(t === 'b') val = v === '1' ? 'SI' : 'NO';
+        else if(t === 'e') val = '';
+        else if(v !== '') val = Number(v);
+        arr[ci-1] = val;
+      });
+      const rn = +row.getAttribute('r') || (rows.length + 1);
+      rows[rn-1] = Array.from(arr, x => x === undefined ? '' : x);
+    });
+    out[sh.getAttribute('name')] = Array.from(rows, r => r || []);
+  }
+  return out;
+}
+
+const normName = s => String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+function xlInt(v){ if(v === '' || v === null || v === undefined) return null; const n = typeof v === 'number' ? v : Number(String(v).trim().replace(',', '.')); return Number.isInteger(n) ? n : NaN; }
+function xlNum(v){ if(v === '' || v === null || v === undefined) return null; const n = typeof v === 'number' ? v : Number(String(v).trim().replace(',', '.')); return isFinite(n) ? n : NaN; }
+function xlYes(v){ return /^(si|s|yes|y|1|true|x)$/.test(normName(v)); }
+function parseTournamentKey(v){
+  let d = null, n = 1, m;
+  if(typeof v === 'number'){ const x = new Date(Date.UTC(1899, 11, 30) + Math.round(v)*86400000); d = [x.getUTCFullYear(), x.getUTCMonth()+1, x.getUTCDate()]; }
+  else {
+    const s = String(v).trim();
+    if((m = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:-(\d+))?$/.exec(s))){ d = [+m[1], +m[2], +m[3]]; if(m[4]) n = +m[4]; }
+    else if((m = /^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})(?:-(\d+))?$/.exec(s))){ d = [+m[3], +m[2], +m[1]]; if(m[4]) n = +m[4]; }
+  }
+  if(!d) return null;
+  const chk = new Date(d[0], d[1]-1, d[2]);
+  if(chk.getFullYear() !== d[0] || chk.getMonth() !== d[1]-1 || chk.getDate() !== d[2]) return null;
+  const date = d[0]+'-'+String(d[1]).padStart(2,'0')+'-'+String(d[2]).padStart(2,'0');
+  return { date, key: n > 1 ? date+'-'+n : date };
+}
+function lev(a, b){
+  const dp = Array.from({ length:a.length+1 }, (_, i) => [i]);
+  for(let j = 1; j <= b.length; j++) dp[0][j] = j;
+  for(let i = 1; i <= a.length; i++) for(let j = 1; j <= b.length; j++) dp[i][j] = Math.min(dp[i-1][j]+1, dp[i][j-1]+1, dp[i-1][j-1] + (a[i-1] === b[j-1] ? 0 : 1));
+  return dp[a.length][b.length];
+}
+// Riga di una partita nella forma confrontabile: [turno, 4 nomi, game A, game B, tb A, tb B]
+const rowSig = r => r.map(v => typeof v === 'string' ? normName(v) : (v === '' || v === null || v === undefined ? '' : String(v))).join('|');
+
+function buildImportPlan(sheets, fileName){
+  const plan = { file:fileName, errors:[], warnings:[], newPlayers:[], playerUpdates:[], playerChanges:[], ops:[], nMatches:0, nExtras:0 };
+  const err = (sh, r, msg) => plan.errors.push(sh+(r ? ' riga '+r : '')+': '+msg);
+  const sheetOf = n => { const k = Object.keys(sheets).find(x => normName(x) === n); return k ? sheets[k] : null; };
+  // Legge un foglio con intestazioni: restituisce le righe come oggetti { _r: numero riga, <colonna>: valore }
+  const table = (n, label, need, opt) => {
+    const rows = sheetOf(n); if(!rows || !rows.length) return null;
+    const head = (rows[0] || []).map(normName), col = {};
+    let ok = true;
+    need.concat(opt || []).forEach(h => { col[h] = head.indexOf(normName(h)); });
+    need.forEach(h => { if(col[h] < 0){ err(label, 0, 'manca la colonna "'+h+'"'); ok = false; } });
+    if(!ok) return [];
+    const out = [];
+    rows.slice(1).forEach((r, i) => {
+      if(!r || r.every(v => v === '' || v === undefined)) return;
+      const o = { _r:i+2 };
+      Object.keys(col).forEach(h => { o[h] = col[h] >= 0 && r[col[h]] !== undefined ? r[col[h]] : ''; });
+      out.push(o);
+    });
+    return out;
+  };
+  const idByNorm = {}; Object.keys(roster).forEach(id => { idByNorm[normName(roster[id].name)] = id; });
+  const wanted = new Map();
+  const useName = raw => { const nm = cleanText(String(raw)).replace(/\s+/g, ' ').trim(); const k = normName(nm); if(k && !idByNorm[k] && !wanted.has(k)) wanted.set(k, nm); return nm; };
+
+  // Giocatori
+  const gSheet = table('giocatori', 'Giocatori', ['Nome'], ['Rating iniziale','Congelato','Nascosto','Lato']);
+  (gSheet || []).forEach(r => {
+    const nm = useName(r['Nome']); if(!nm) return;
+    const id = idByNorm[normName(nm)], p = id ? roster[id] : null, u = { name:nm }, ch = [];
+    const rt = xlNum(r['Rating iniziale']);
+    if(Number.isNaN(rt) || (rt !== null && (rt < 100 || rt > 3000))) err('Giocatori', r._r, 'rating iniziale non valido ('+r['Rating iniziale']+')');
+    else if(rt !== null && (!p || Math.round(rt*10)/10 !== p.elo0)){ u.elo0 = Math.round(rt*10)/10; if(p) ch.push('rating iniziale '+p.elo0+' → '+u.elo0); }
+    if(r['Congelato'] !== '' && xlYes(r['Congelato']) !== !!(p && p.frozen) && (p || xlYes(r['Congelato']))){ u.frozen = xlYes(r['Congelato']); if(p) ch.push(u.frozen ? 'congelato' : 'scongelato'); }
+    if(r['Nascosto'] !== '' && xlYes(r['Nascosto']) !== !!(p && p.hidden) && (p || xlYes(r['Nascosto']))){ u.hidden = xlYes(r['Nascosto']); if(p) ch.push(u.hidden ? 'nascosto' : 'visibile'); }
+    const side = String(r['Lato']).trim();
+    if(side !== '' && /^(Sx|Dx)$/i.test(side) && (side.charAt(0).toUpperCase()+'x') !== (p && p.side)){ u.side = side.charAt(0).toUpperCase()+'x'; if(p) ch.push('lato '+u.side); }
+    if(Object.keys(u).length > 1){ plan.playerUpdates.push(u); if(p) plan.playerChanges.push(nm+': '+ch.join(', ')); }
+  });
+
+  // Tornei (impostazioni)
+  const meta = {};
+  (table('tornei', 'Tornei', ['Torneo'], ['Modalità','Campi','Escluso']) || []).forEach(r => {
+    const k = parseTournamentKey(r['Torneo']);
+    if(!k){ err('Tornei', r._r, 'data del torneo non valida ('+r['Torneo']+')'); return; }
+    const md = normName(r['Modalità']);
+    let mode = 'fixed';
+    if(md === '' || /^(squadre fisse|fisse|fixed)$/.test(md)) mode = 'fixed'; else if(/^americano/.test(md)) mode = 'americano'; else if(/^messicano/.test(md)) mode = 'messicano';
+    else { err('Tornei', r._r, 'modalità non riconosciuta ('+r['Modalità']+')'); return; }
+    const courts = xlInt(r['Campi']);
+    meta[k.key] = { mode, courts: (courts && courts > 0) ? courts : 0, excluded: xlYes(r['Escluso']), hasExcluded: r['Escluso'] !== '' };
+  });
+
+  // Partite ed extra
+  const specs = {};
+  const spec = k => specs[k.key] || (specs[k.key] = { key:k.key, date:k.date, rounds:{}, extras:[] });
+  const readGame = (sh, r, off) => {
+    const s1 = xlInt(r['Game A']), s2 = xlInt(r['Game B']);
+    if(s1 === null || s2 === null || Number.isNaN(s1) || Number.isNaN(s2) || !scoreIsPlausible(s1, s2) || s1 + s2 === 0){ err(sh, r._r, 'punteggio non valido (numeri interi; sopra il 6 lo scarto è al massimo 2)'); return null; }
+    let tb;
+    if(isTiedSix(s1, s2)){
+      const a = xlInt(r['TB A']), b = xlInt(r['TB B']);
+      if(a === null || b === null || !tiebreakIsPlausible(a, b)){ err(sh, r._r, 'sul 6-6 serve il tie-break (7 con almeno 2 di scarto)'); return null; }
+      tb = [a, b];
+    }
+    return { s1, s2, tb };
+  };
+  const readNames = (sh, r, cols) => {
+    const names = cols.map(c => useName(r[c]));
+    if(names.some(n => !n)){ err(sh, r._r, 'mancano uno o più giocatori'); return null; }
+    if(new Set(names.map(normName)).size !== 4){ err(sh, r._r, 'un giocatore compare due volte nella stessa partita'); return null; }
+    return names;
+  };
+  (table('partite', 'Partite', ['Torneo','Turno','A Sx','A Dx','B Sx','B Dx','Game A','Game B'], ['TB A','TB B']) || []).forEach(r => {
+    const k = parseTournamentKey(r['Torneo']);
+    if(!k){ err('Partite', r._r, 'data del torneo non valida ('+r['Torneo']+')'); return; }
+    const round = xlInt(r['Turno']);
+    if(!round || round < 1 || Number.isNaN(round)){ err('Partite', r._r, 'turno non valido ('+r['Turno']+')'); return; }
+    const names = readNames('Partite', r, ['A Sx','A Dx','B Sx','B Dx']), g = readGame('Partite', r);
+    if(!names || !g) return;
+    const sp = spec(k), R = sp.rounds[round] || (sp.rounds[round] = []);
+    const used = new Set(); R.forEach(m => m.names.forEach(n => used.add(normName(n))));
+    const dup = names.find(n => used.has(normName(n)));
+    if(dup){ err('Partite', r._r, dup+' gioca due partite nel turno '+round+' del torneo '+k.key); return; }
+    R.push({ names, s1:g.s1, s2:g.s2, tb:g.tb });
+    plan.nMatches++;
+  });
+  (table('extra', 'Extra', ['Torneo','A Sx','A Dx','B Sx','B Dx','Game A','Game B'], ['TB A','TB B','Peso']) || []).forEach(r => {
+    const k = parseTournamentKey(r['Torneo']);
+    if(!k){ err('Extra', r._r, 'data del torneo non valida ('+r['Torneo']+')'); return; }
+    const names = readNames('Extra', r, ['A Sx','A Dx','B Sx','B Dx']), g = readGame('Extra', r);
+    if(!names || !g) return;
+    const w = xlNum(r['Peso']);
+    if(w !== null && (Number.isNaN(w) || w < 0 || w > 1)){ err('Extra', r._r, 'peso non valido (tra 0 e 1)'); return; }
+    spec(k).extras.push({ names, s1:g.s1, s2:g.s2, tb:g.tb, weight: w === null ? EXTRA_K_FACTOR : w });
+    plan.nExtras++;
+  });
+  const cmd = sheetOf('comandi');
+  if(cmd && cmd.slice(1).some(r => r && r.some(v => v !== ''))) plan.warnings.push('Il foglio Comandi non è ancora supportato: viene ignorato.');
+  Object.keys(meta).forEach(k => { if(!specs[k]) plan.warnings.push('Torneo '+k+' nel foglio Tornei senza partite: ignorato.'); });
+
+  // Confronto con l'archivio
+  const keys = tournamentKeys();
+  Object.keys(specs).sort().forEach(k => {
+    const sp = specs[k], mt = meta[k] || { mode:'fixed', courts:0, excluded:false, hasExcluded:false };
+    const rounds = Object.keys(sp.rounds).map(Number).sort((a,b) => a-b).map(n => ({ round:n, matches:sp.rounds[n] }));
+    const op = { key:k, date:sp.date, mode:mt.mode, courts: mt.courts || Math.max(1, ...rounds.map(h => h.matches.length)), excluded:mt.excluded, rounds, extras:sp.extras, nM: rounds.reduce((n,h) => n+h.matches.length, 0), nE: sp.extras.length };
+    const idx = keys.indexOf(k);
+    if(idx < 0){ op.type = 'add'; }
+    else {
+      const cur = matchRowsOf(archive[idx]);
+      const sigP = rounds.flatMap(h => h.matches.map(m => rowSig([h.round].concat(m.names, [m.s1, m.s2, m.tb ? m.tb[0] : '', m.tb ? m.tb[1] : '']))));
+      const sigE = sp.extras.map(x => rowSig(x.names.concat([x.s1, x.s2, x.tb ? x.tb[0] : '', x.tb ? x.tb[1] : '', x.weight])));
+      const same = JSON.stringify(sigP.slice().sort()) === JSON.stringify(cur.partite.map(rowSig).sort()) && JSON.stringify(sigE.slice().sort()) === JSON.stringify(cur.extra.map(rowSig).sort());
+      op.idx = idx;
+      if(!same) op.type = 'update';
+      else if(mt.hasExcluded && !!archive[idx].excluded !== mt.excluded) op.type = 'flag';
+      else op.type = 'same';
+    }
+    plan.ops.push(op);
+  });
+  // Nuovi giocatori (solo quelli davvero usati o elencati) e somiglianze sospette
+  const existingNames = Object.values(roster).map(p => p.name);
+  wanted.forEach(nm => {
+    plan.newPlayers.push(nm);
+    const k = normName(nm);
+    const near = existingNames.concat(Array.from(wanted.values()).filter(x => x !== nm)).find(o => { const ko = normName(o); return ko !== k && Math.min(k.length, ko.length) >= 4 && lev(k, ko) <= 1; });
+    if(near) plan.warnings.push('"'+nm+'" è nuovo ma assomiglia a "'+near+'": errore di battitura?');
+  });
+  return plan;
+}
+// Righe confrontabili di un torneo già in archivio (stesso formato dell'export)
+function matchRowsOf(a){
+  const nm = archiveIdNames(a), nameFor = id => (roster[id] && roster[id].name) || nm[id] || id;
+  const partite = [], extra = [];
+  (a.history || []).forEach(h => (h.matches || []).forEach(m => {
+    const base = matchBaseIds(a, m), A = (m.sides && m.sides.a) || base.a || [], B = (m.sides && m.sides.b) || base.b || [];
+    partite.push([h.round, nameFor(A[0] || ''), nameFor(A[1] || ''), nameFor(B[0] || ''), nameFor(B[1] || ''), m.s1, m.s2, m.tb ? m.tb[0] : '', m.tb ? m.tb[1] : '']);
+  }));
+  (a.extras || []).forEach(x => {
+    const A = x.idsA || x.teamA.map(resolveId), B = x.idsB || x.teamB.map(resolveId);
+    extra.push([nameFor(A[0] || ''), nameFor(A[1] || ''), nameFor(B[0] || ''), nameFor(B[1] || ''), x.s1, x.s2, x.tb ? x.tb[0] : '', x.tb ? x.tb[1] : '', extraWeightOf(x)]);
+  });
+  return { partite, extra };
+}
+function entryFromSpec(op, old){
+  const idOf = nm => findIdByName(nm) || resolveId(nm);
+  const e = Object.assign({}, old || {});
+  e.date = old ? old.date : new Date(+op.date.slice(0,4), +op.date.slice(5,7)-1, +op.date.slice(8,10), 12, 0, 0).toISOString();
+  if(op.excluded) e.excluded = true; else delete e.excluded;
+  delete e.teams; delete e.players; delete e.mode;
+  e.courts = op.courts;
+  e.roundsPlayed = Math.max(0, ...op.rounds.map(h => h.round)); e.maxRounds = e.roundsPlayed;
+  const all = [];
+  op.rounds.forEach(h => h.matches.forEach(m => m.names.forEach(n => { const id = idOf(n); if(!all.includes(id)) all.push(id); })));
+  e.history = [];
+  if(op.mode === 'fixed'){
+    e.teams = [];
+    const tIdx = {};
+    const teamOf = ids => {
+      const k = ids.slice().sort().join('+');
+      if(tIdx[k] === undefined){ tIdx[k] = e.teams.length; e.teams.push({ name: ids.map(i => roster[i] ? roster[i].name : i).join(' & '), playerIds:ids.slice(), wins:0, setsWon:0, setsLost:0 }); }
+      return tIdx[k];
+    };
+    op.rounds.forEach(h => e.history.push({ round:h.round, resting:[], matches: h.matches.map((m, ci) => {
+      const pa = [idOf(m.names[0]), idOf(m.names[1])], pb = [idOf(m.names[2]), idOf(m.names[3])], aId = teamOf(pa), bId = teamOf(pb);
+      const o = { aId, bId, a:e.teams[aId].name, b:e.teams[bId].name, s1:m.s1, s2:m.s2, court:ci, pa, pb, sides:{ a:pa.slice(), b:pb.slice() } };
+      if(m.tb) o.tb = m.tb;
+      return o;
+    }) }));
+    recomputeTeamAggregates(e);
+  } else {
+    e.mode = op.mode; e.players = all;
+    op.rounds.forEach(h => {
+      const playing = new Set();
+      const matches = h.matches.map((m, ci) => {
+        const pa = [idOf(m.names[0]), idOf(m.names[1])], pb = [idOf(m.names[2]), idOf(m.names[3])];
+        pa.concat(pb).forEach(i => playing.add(i));
+        const nmOf = i => roster[i] ? roster[i].name : i;
+        const o = { pa, pb, a:pa.map(nmOf).join(' & '), b:pb.map(nmOf).join(' & '), s1:m.s1, s2:m.s2, court:ci };
+        if(m.tb) o.tb = m.tb;
+        return o;
+      });
+      e.history.push({ round:h.round, resting: all.filter(i => !playing.has(i)), matches });
+    });
+  }
+  e.extras = op.extras.map((x, i) => {
+    const idsA = [idOf(x.names[0]), idOf(x.names[1])], idsB = [idOf(x.names[2]), idOf(x.names[3])];
+    const o = { id: Date.now() + i, teamA: idsA.map(j => roster[j].name), teamB: idsB.map(j => roster[j].name), s1:x.s1, s2:x.s2, rating: x.weight >= 1 ? 'full' : (x.weight > 0 ? 'reduced' : 'none'), weight:x.weight, idsA, idsB };
+    if(x.tb) o.tb = x.tb;
+    return o;
+  });
+  e.ratingChanges = [];
+  return e;
+}
+function applyImportPlan(){
+  const plan = importPlan;
+  if(!plan || plan.errors.length) return;
+  const changes = plan.ops.filter(o => o.type !== 'same').length + plan.playerUpdates.length;
+  if(!changes){ importPlan = null; dataMsg = 'Niente da importare: il file coincide con i dati dell\'app.'; render(); return; }
+  // copia di sicurezza per "Annulla ultima importazione"
+  importUndo = JSON.parse(JSON.stringify({ at:new Date().toISOString(), file:plan.file, roster, archive, calc }));
+  try{ localStorage.setItem(IMPORT_UNDO_KEY, JSON.stringify(importUndo)); }catch(e){ /* resta in memoria: annullabile finché l'app è aperta */ }
+  plan.newPlayers.forEach(nm => upsertPlayer(nm));
+  plan.playerUpdates.forEach(u => {
+    const id = findIdByName(u.name), p = id && roster[id]; if(!p) return;
+    if(u.elo0 !== undefined) p.elo0 = u.elo0;
+    if(u.frozen !== undefined) p.frozen = u.frozen;
+    if(u.hidden !== undefined) p.hidden = u.hidden;
+    if(u.side !== undefined) p.side = u.side;
+  });
+  const fresh = [];
+  plan.ops.forEach(op => {
+    if(op.type === 'add') fresh.push(entryFromSpec(op, null));
+    else if(op.type === 'update') archive[op.idx] = entryFromSpec(op, archive[op.idx]);
+    else if(op.type === 'flag'){ if(op.excluded) archive[op.idx].excluded = true; else delete archive[op.idx].excluded; }
+  });
+  fresh.forEach(e => archive.push(e));
+  sortArchive();
+  ensureArchiveIds();
+  recomputeRatings();
+  ratingSummary = null; expandedArchiveIdx = null; editingArchiveIdx = null;
+  saveRoster(); saveArchive();
+  const n = (t) => plan.ops.filter(o => o.type === t).length;
+  importPlan = null;
+  dataMsg = 'Importazione completata: '+n('add')+' tornei aggiunti, '+n('update')+' aggiornati.';
+  render();
+}
+function cancelImportPlan(){ importPlan = null; render(); }
+function undoImport(){
+  if(!importUndo) return;
+  if(!confirm('Annullare l\'ultima importazione ('+importUndo.file+')? I dati tornano come prima di allora.')) return;
+  roster = normalizeRoster(importUndo.roster);
+  archive = normalizeArchive(importUndo.archive);
+  calc = cleanCalc(importUndo.calc); saveCalc();
+  ensureArchiveIds(); recomputeRatings();
+  saveRoster(); saveArchive();
+  try{ localStorage.removeItem(IMPORT_UNDO_KEY); }catch(e){}
+  importUndo = null; ratingSummary = null; expandedArchiveIdx = null; editingArchiveIdx = null;
+  dataMsg = 'Ultima importazione annullata.';
+  render();
+}
+async function importXlsxBuffer(buf, name){
+  try{
+    importPlan = buildImportPlan(await readXlsx(buf), name);
+  }catch(e){
+    importPlan = { file:name, errors:['file non leggibile'+(e && e.message ? ': '+e.message : '')], warnings:[], ops:[], newPlayers:[], playerUpdates:[], playerChanges:[], nMatches:0, nExtras:0 };
+  }
+  dataMsg = '';
+  render();
+}
+function handleXlsxFile(file){
+  if(!file) return;
+  if(typeof JSZip === 'undefined'){ dataMsg = 'Importazione Excel non disponibile: libreria non caricata.'; render(); return; }
+  const reader = new FileReader();
+  reader.onload = e => importXlsxBuffer(e.target.result, file.name);
+  reader.onerror = () => { dataMsg = 'Lettura del file non riuscita.'; render(); };
+  reader.readAsArrayBuffer(file);
+}
+function importPreviewHtml(){
+  const p = importPlan; if(!p) return '';
+  const of = t => p.ops.filter(o => o.type === t);
+  const list = (arr, max) => arr.slice(0, max).join(', ') + (arr.length > max ? ' … (+' + (arr.length-max) + ')' : '');
+  let h = '<div class="banner"><p style="margin:0 0 8px;"><b>Anteprima importazione</b> · '+esc(p.file)+'</p>';
+  if(p.errors.length){
+    h += '<p style="margin:0 0 6px;"><b>'+p.errors.length+(p.errors.length === 1 ? ' errore' : ' errori')+' da correggere nel file (non è stato cambiato nulla):</b></p><ul style="margin:0 0 8px;padding-left:18px;font-size:13px;">'+p.errors.slice(0, 12).map(e => '<li>'+esc(e)+'</li>').join('')+(p.errors.length > 12 ? '<li>… e altri '+(p.errors.length-12)+'</li>' : '')+'</ul>';
+  } else {
+    h += '<ul style="margin:0 0 8px;padding-left:18px;font-size:13.5px;">';
+    h += '<li>Tornei da aggiungere: <b>'+of('add').length+'</b>'+(of('add').length ? ' ('+esc(list(of('add').map(o => o.key), 6))+')' : '')+'</li>';
+    h += '<li>Tornei da aggiornare: <b>'+of('update').length+'</b>'+(of('update').length ? ' ('+esc(list(of('update').map(o => o.key), 6))+')' : '')+'</li>';
+    if(of('flag').length) h += '<li>Tornei con solo l\'opzione "escluso" cambiata: <b>'+of('flag').length+'</b></li>';
+    h += '<li>Tornei invariati: <b>'+of('same').length+'</b></li>';
+    h += '<li>Partite lette: <b>'+p.nMatches+'</b> · extra: <b>'+p.nExtras+'</b></li>';
+    if(p.newPlayers.length) h += '<li>Nuovi giocatori: <b>'+esc(list(p.newPlayers, 10))+'</b></li>';
+    if(p.playerChanges.length) h += '<li>Giocatori modificati: '+esc(list(p.playerChanges, 5))+'</li>';
+    h += '</ul>';
+    if(of('update').length) h += '<p class="hint" style="margin:0 0 8px;">Nei tornei aggiornati partite, squadre e partite extra vengono riscritte come nel file (ritiri e sostituzioni registrati in app si perdono).</p>';
+  }
+  if(p.warnings.length) h += '<p class="hint" style="margin:0 0 8px;"><b>Attenzione:</b> '+p.warnings.slice(0, 8).map(esc).join(' · ')+'</p>';
+  const changes = of('add').length + of('update').length + of('flag').length + p.playerUpdates.length;
+  h += '<div class="data-row">';
+  if(!p.errors.length && changes) h += '<button class="primary" onclick="applyImportPlan()">Applica</button>';
+  h += '<button class="ghost" onclick="cancelImportPlan()">'+(p.errors.length || !changes ? 'Chiudi' : 'Annulla')+'</button></div>';
+  if(!p.errors.length && !changes) h += '<p class="hint" style="margin:6px 0 0;">Il file coincide con i dati dell\'app: non c\'è niente da importare.</p>';
+  return h + '</div>';
+}
+
 function triggerImport(){ const el = document.getElementById('importFile'); if(el) el.click(); }
 
 function applyImportedData(data){
@@ -1623,6 +2114,7 @@ function applyImportedData(data){
   if(rf){ roster = normalizeRoster(rf); saveRoster(); }
   if(tf){ t = normalizeTournament(tf); saveTournament(); extraDraft = null; roundDraft = {}; pairEdit = null; }
   if(af){ archive = normalizeArchive(af); }
+  if(data.calc && typeof data.calc === 'object'){ calc = cleanCalc(data.calc); saveCalc(); }
   // Id nascosti e rating ricalcolati dall'archivio (anche per backup di versioni precedenti).
   ensureArchiveIds();
   recomputeRatings();
@@ -1681,15 +2173,25 @@ function backupBanner(){
 
 function dataSection(){
   let html = '<section><p class="section-label">Dati</p>';
+  html += importPreviewHtml();
   html += '<div class="data-row"><button class="ghost" onclick="shareBackup()">Condividi backup</button>';
   html += '<button class="ghost" onclick="exportData()">Scarica (.zip)</button></div>';
+  html += '<div class="data-row"><button class="ghost" onclick="exportExcel()">Esporta in Excel (.xlsx)</button><label class="ghost" for="importXlsx" style="cursor:pointer;">Importa da Excel</label><input type="file" id="importXlsx" accept=".xlsx" onchange="handleXlsxFile(this.files[0]); this.value=\'\'" style="display:none;" /></div>';
+  if(importUndo) html += '<div class="data-row"><button class="ghost" onclick="undoImport()">Annulla ultima importazione ('+esc(importUndo.file)+')</button></div>';
   html += '<div class="data-row data-sep"><label class="ghost" for="importFile" style="cursor:pointer;">Importa backup</label></div>';
   html += '<input type="file" id="importFile" accept=".txt,.json,.zip,text/plain,application/json,application/zip" onchange="handleImportFile(this.files[0])" />';
   html += '<p class="hint" style="margin-top:8px;">Tornei archiviati: '+archive.length+' (ultimi '+ARCHIVE_MAX+')'+(getLastBackup() ? ' · ultimo backup: '+new Date(getLastBackup()).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : ' · nessun backup ancora')+(storagePersisted === true ? ' · memoria dell\'app protetta dal telefono' : (storagePersisted === false ? ' · memoria non protetta: fai il backup spesso' : ''))+'</p>';
+  html += '<p class="section-label" style="margin-top:14px;">Calcolo delle classifiche</p>';
+  html += '<div class="data-row"><label style="font-size:13.5px;">Conta i tornei dal <input type="date" value="'+esc(calc.from)+'" onchange="setCalcFrom(this.value)" /></label></div>';
+  html += '<div class="data-row"><label style="font-size:13.5px;">Rating di partenza <select onchange="setCalcBase(this.value)"><option value="set"'+(calc.base==='set'?' selected':'')+'>valore impostato</option><option value="1000"'+(calc.base==='1000'?' selected':'')+'>1000 per tutti</option></select></label></div>';
+  html += '<p class="hint">Contano '+archive.filter(countsForRatings).length+' tornei su '+archive.length+'. Quelli prima della data restano in archivio ma non entrano in Elo, Glicko-2, % vittorie e classifica squadre. I giocatori congelati tengono il loro valore. Data vuota = conta tutto.</p>';
   if(dataMsg){ html += '<p class="hint" style="margin-top:8px;">'+dataMsg+'</p>'; }
   html += '</section>';
   return html;
 }
+function applyCalc(){ saveCalc(); recomputeRatings(); ratingSummary = null; saveRoster(); saveArchive(); render(); }
+function setCalcFrom(v){ calc.from = cleanCalc({ from:v }).from; applyCalc(); }
+function setCalcBase(v){ calc.base = (v === '1000') ? '1000' : 'set'; applyCalc(); }
 
 function teamKeyIds(ids){ return [...ids].sort().join('|'); }
 
@@ -1729,7 +2231,7 @@ function teamStats(list, includeLive){
   }
   list.forEach(a => {
     if(a.mode && a.mode !== 'fixed') return;   // Americano/Messicano non hanno squadre fisse: non entrano nella classifica squadre
-    if(a.excluded) return;                      // torneo escluso dalle classifiche
+    if(!countsForRatings(a)) return;            // torneo escluso o prima della data di inizio
     (a.teams||[]).forEach((tm, ti) => {
       if(tm.subs && tm.subs.length){
         const all = []; (a.history||[]).forEach(h => h.matches.forEach(m => all.push(m)));
@@ -1945,7 +2447,16 @@ function saveArchiveEdit(i){
     const conflict = archiveMovesConflict(a, moves);
     if(conflict){ err.textContent = 'Turno '+conflict.round+': '+conflict.who+' giocherebbe due volte. Scegli un altro turno.'; return; }
   }
+  let newDate = null;
+  const dEl = document.getElementById('archDate');
+  if(dEl && dEl.value && dEl.value !== dateKey(a.date)){
+    const mt = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dEl.value);
+    const nd = mt ? new Date(+mt[1], +mt[2]-1, +mt[3], 12, 0, 0) : null;
+    if(!nd || dateKey(nd) !== dEl.value){ err.textContent = 'Data non valida.'; return; }
+    newDate = nd.toISOString();
+  }
   updates.forEach(fn => fn());
+  if(newDate){ a.date = newDate; sortArchive(); expandedArchiveIdx = null; }
   if(moves.length) archiveApplyMoves(a, moves);
   if(!a.mode || a.mode === 'fixed'){ recomputeTeamAggregates(a); }
   recomputeRatings();
@@ -2302,7 +2813,7 @@ function archiveSubPanel(a, i){
 function extraWeightOf(x){ return x.weight !== undefined ? x.weight : (x.rating==='full' ? 1 : (x.rating==='reduced' ? EXTRA_K_FACTOR : 0)); }
 function extraCounts(list){
   const c = { total:0, full:0, reduced:0, none:0 };
-  (list || archive.filter(a => !a.excluded)).forEach(a => (a.extras || []).forEach(x => {
+  (list || archive.filter(countsForRatings)).forEach(a => (a.extras || []).forEach(x => {
     const w = extraWeightOf(x);
     c.total++;
     if(w >= 1) c.full++; else if(w > 0) c.reduced++; else c.none++;
@@ -2452,6 +2963,7 @@ function archiveDetailBody(a, i){
     html += '<div class="banner warn" style="margin:4px 0 10px;"><p style="margin:0 0 10px;">Eliminare '+esc(archiveRemoveConfirm.desc)+'?</p><div style="display:flex;gap:8px;"><button class="primary" style="background:var(--danger);color:#fff;" onclick="confirmArchiveRemove()">Sì, elimina</button><button class="ghost" style="margin-top:0;" onclick="cancelArchiveRemoveConfirm()">Annulla</button></div></div>';
   }
   const editing = (editingArchiveIdx === i);
+  if(editing){ html += '<label style="display:flex;align-items:center;gap:8px;margin:4px 0 10px;font-size:13.5px;">Data del torneo <input type="date" id="archDate" value="'+esc(dateKey(a.date))+'" /></label>'; }
   const scoreInputs = (idA, idB, v1, v2, tbIdA, tbIdB, tbRowId, tb) => {
     let out = '<div class="edit-match-score"><input id="'+idA+'" type="number" min="0" inputmode="numeric" value="'+v1+'" oninput="toggleTbRow('+jsArg(idA)+','+jsArg(idB)+','+jsArg(tbRowId)+')" /><span class="dash">&ndash;</span><input id="'+idB+'" type="number" min="0" inputmode="numeric" value="'+v2+'" oninput="toggleTbRow('+jsArg(idA)+','+jsArg(idB)+','+jsArg(tbRowId)+')" /></div>';
     out += '<div class="tb-row" id="'+tbRowId+'" style="'+(isTiedSix(v1,v2)?'':'display:none;')+'"><span class="tb-label">Tie-break</span><input class="score-input tb-input" id="'+tbIdA+'" type="number" min="0" inputmode="numeric" value="'+(tb?tb[0]:'')+'" /><span class="dash">&ndash;</span><input class="score-input tb-input" id="'+tbIdB+'" type="number" min="0" inputmode="numeric" value="'+(tb?tb[1]:'')+'" /></div>';
@@ -2556,7 +3068,7 @@ function archiveFixedCard(a, i){
   const sorted = a.teams.map((tm,idx)=>({...tm, _idx:idx})).sort((x,y)=> y.wins-x.wins || (y.setsWon-y.setsLost)-(x.setsWon-x.setsLost) || archBuchholz(y._idx)-archBuchholz(x._idx));
   const ranks = computeRanks(sorted, tm => tm.wins+'-'+(tm.setsWon-tm.setsLost));
   let html = '<div class="team-card"><div class="team-card-head">';
-  html += '<p class="section-label">'+dateStr+' · '+a.teams.length+' squadre · '+a.roundsPlayed+' turni'+(a.excluded?' · escluso':'')+'</p>';
+  html += '<p class="section-label">'+dateStr+' · '+a.teams.length+' squadre · '+a.roundsPlayed+' turni'+excTag(a)+'</p>';
   html += '<button class="small" onclick="toggleArchiveExpand('+i+')">'+(expandedArchiveIdx===i ? 'Chiudi' : 'Dettagli')+'</button>';
   html += '</div>';
   sorted.forEach((tm,pos) => {
@@ -2578,7 +3090,7 @@ function archiveRotatingCard(a, i){
   const standings = archivePlayerStandings(a);
   const ranks = computeRanks(standings, r => r.wins+'-'+(r.gW-r.gL));
   let html = '<div class="team-card"><div class="team-card-head">';
-  html += '<p class="section-label">'+dateStr+' · '+(a.players ? a.players.length : standings.length)+' giocatori · '+a.roundsPlayed+' turni · '+label+(a.excluded?' · escluso':'')+'</p>';
+  html += '<p class="section-label">'+dateStr+' · '+(a.players ? a.players.length : standings.length)+' giocatori · '+a.roundsPlayed+' turni · '+label+excTag(a)+'</p>';
   html += '<button class="small" onclick="toggleArchiveExpand('+i+')">'+(expandedArchiveIdx===i ? 'Chiudi' : 'Dettagli')+'</button>';
   html += '</div>';
   standings.forEach((r,pos) => {
@@ -3103,12 +3615,12 @@ function g2Update(pl, games){
 }
 
 function computeGlicko(list, hook){
-  list = (list || archive).filter(a => !a.excluded);
+  list = (list || archive).filter(countsForRatings);
   const byId = roster;  // la chiave della rubrica È l'id
   const P = {};
   const get = id => {
     if(!P[id]){
-      const base = (byId[id] && byId[id].elo0 !== undefined) ? byId[id].elo0 : G2_BASE;  // parte dallo stesso rating iniziale impostato per l'Elo (utile per gli ospiti "congelati")
+      const base = byId[id] ? startState(id).elo : G2_BASE;  // parte dallo stesso rating iniziale impostato per l'Elo (utile per gli ospiti "congelati")
       P[id] = { id, mu:(base - G2_BASE)/G2_SCALE, phi:G2_INIT_PHI, sigma:G2_INIT_SIGMA, games:0, seen:false };
     }
     return P[id];
@@ -3314,7 +3826,7 @@ function formatArchiveResults(a){
   if(when) text += '📅 ' + when + '\n';
   text += '🏷 ' + mode;
   if(a.unofficial) text += ' · prova';
-  if(a.excluded) text += ' · escluso dal rating';
+  if(a.excluded) text += ' · escluso dal rating'; else if(!countsForRatings(a)) text += ' · prima della data di inizio calcoli';
   text += '\n\n';
 
   let anyUpset = false;
@@ -3665,7 +4177,7 @@ function playerProfileView(id){
   const p = roster[id];
   if(!p) return '';
   const partners = {}, opponents = {};
-  const eloHistory = [{ label: 'Inizio', val: p.elo0 !== undefined ? p.elo0 : START_ELO }];
+  const eloHistory = [{ label: 'Inizio', val: startState(id).elo }];
   const glickoHistory = [];
   const winHistory = [];
   let cumW = 0, cumM = 0;
@@ -3673,7 +4185,7 @@ function playerProfileView(id){
   const sideStats = { Sx:{m:0,w:0,e:0,me:0}, Dx:{m:0,w:0,e:0,me:0} }, sideByPartner = {};
 
   archive.forEach((a, aIdx) => {
-    if(a.excluded) return;
+    if(!countsForRatings(a)) return;
     if(a.ratingChanges){
       const change = a.ratingChanges.find(r => r.id === id);
       if(change) eloHistory.push({ label: 'T'+(aIdx+1), val: change.after });
@@ -3740,11 +4252,11 @@ function playerProfileView(id){
     let running = null;
     const slice = [];
     archive.forEach((a, aIdx) => {
-      if(a.excluded) return;
+      if(!countsForRatings(a)) return;
       slice.push(a);
       const s2 = computeEloStates(slice, false);
       if(s2[id]){
-        if(running === null) eloHistory[0] = { label: 'Inizio', val: (roster[id].elo0 !== undefined ? roster[id].elo0 : START_ELO) };
+        if(running === null) eloHistory[0] = { label: 'Inizio', val: startState(id).elo };
         eloHistory.push({ label: 'T'+(aIdx+1), val: s2[id].elo });
         running = s2[id].elo;
       }
