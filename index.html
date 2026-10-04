@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v40">
+<meta name="app-version" content="v43">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -320,12 +320,12 @@ function dateKey(d){
   return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');
 }
 const LS_CALC = 'padel-calc-v1';
-function cleanCalc(r){ return { from: (r && /^\d{4}-\d{2}-\d{2}$/.test(r.from)) ? r.from : '', base: (r && r.base === '1000') ? '1000' : 'set' }; }
+function cleanCalc(r){ return { from: (r && /^\d{4}-\d{2}-\d{2}$/.test(r.from)) ? r.from : '', base: (r && r.base === '1000') ? '1000' : 'set', recAll: !(r && r.recAll === false) }; }
 let calc = (function(){
   try{ const raw = localStorage.getItem(LS_CALC); if(raw) return cleanCalc(JSON.parse(raw)); }catch(e){}
   // prima volta: i tornei già presenti restano gli unici a contare, così le classifiche non cambiano
   let min = ''; archive.forEach(a => { const k = dateKey(a.date); if(k && (!min || k < min)) min = k; });
-  return { from:min, base:'set' };
+  return { from:min, base:'set', recAll:true };
 })();
 function saveCalc(){ try{ localStorage.setItem(LS_CALC, JSON.stringify(calc)); }catch(e){} }
 saveCalc();
@@ -1693,7 +1693,13 @@ function exportSheets(){
     ['Partite: i giocatori di ogni squadra vanno scritti nell\'ordine Sx, Dx. I nomi devono coincidere con quelli del foglio Giocatori.'],
     ['Il tie-break (TB) si compila solo sul 6-6. Peso delle partite extra: 1 = piena, 0,5 = ridotta, 0 = non conta per i rating.'],
     ['I fogli con "(sola lettura)" sono solo da consultare: chi importa il file li ignora.'],
-    ['Modalità: Squadre fisse, Americano o Messicano. Escluso: SI = il torneo resta in archivio ma non entra nei calcoli.']
+    ['Modalità: Squadre fisse, Americano o Messicano. Escluso: SI = il torneo resta in archivio ma non entra nei calcoli.'],
+    [''],
+    ['Foglio Comandi: si eseguono dopo l\'importazione dei dati, nell\'ordine delle righe; l\'anteprima mostra l\'effetto prima di applicare.'],
+    ['ELIMINA TORNEI PRIMA DI | data   ·   ELIMINA TORNEO | data   ·   ESCLUDI TORNEO | data   ·   INCLUDI TORNEO | data'],
+    ['DATA INIZIO CALCOLI | data (vuoto = tutti i tornei)   ·   RATING DI PARTENZA | valore impostato oppure 1000   ·   SERIE E RECORD | tutta la storia oppure dalla data di inizio'],
+    ['RATING INIZIALE | giocatore | valore   ·   CONGELA, SCONGELA, NASCONDI, MOSTRA | giocatore   ·   RINOMINA GIOCATORE | vecchio | nuovo'],
+    ['L\'esportazione lascia il foglio Comandi vuoto: svuotalo anche tu dopo l\'uso, per non rieseguire gli stessi comandi.']
   ] });
   sheets.push({ name:'Giocatori', freeze:true, filter:true, widths:[24,16,12,12,8],
     rows:[['Nome','Rating iniziale','Congelato','Nascosto','Lato']].concat(players.map(p => [p.name, p.elo0, yn(p.frozen), yn(p.hidden), p.side || ''])) });
@@ -1713,6 +1719,7 @@ function exportSheets(){
     lists:[{ sqref:'C2:F5000', formula:'Giocatori!$A$2:$A$300' }] });
   sheets.push({ name:'Extra', freeze:true, filter:true, widths:[14,18,18,18,18,9,9,7,7,7], rows:extra,
     lists:[{ sqref:'B2:E5000', formula:'Giocatori!$A$2:$A$300' }] });
+  sheets.push({ name:'Comandi', freeze:true, widths:[28,18,18,40], rows:[['Comando','Valore 1','Valore 2','Note']] });
   const gl = {}; computeGlicko().forEach(r => { gl[r.id] = r.rating; });
   const ids = Object.keys(roster).filter(id => roster[id].matches > 0).sort((x,y) => roster[y].elo - roster[x].elo || roster[x].name.localeCompare(roster[y].name));
   sheets.push({ name:'Classifica (sola lettura)', freeze:true, widths:[24,10,10,10,10],
@@ -1911,8 +1918,6 @@ function buildImportPlan(sheets, fileName){
     spec(k).extras.push({ names, s1:g.s1, s2:g.s2, tb:g.tb, weight: w === null ? EXTRA_K_FACTOR : w });
     plan.nExtras++;
   });
-  const cmd = sheetOf('comandi');
-  if(cmd && cmd.slice(1).some(r => r && r.some(v => v !== ''))) plan.warnings.push('Il foglio Comandi non è ancora supportato: viene ignorato.');
   Object.keys(meta).forEach(k => { if(!specs[k]) plan.warnings.push('Torneo '+k+' nel foglio Tornei senza partite: ignorato.'); });
 
   // Confronto con l'archivio
@@ -1943,6 +1948,71 @@ function buildImportPlan(sheets, fileName){
     const near = existingNames.concat(Array.from(wanted.values()).filter(x => x !== nm)).find(o => { const ko = normName(o); return ko !== k && Math.min(k.length, ko.length) >= 4 && lev(k, ko) <= 1; });
     if(near) plan.warnings.push('"'+nm+'" è nuovo ma assomiglia a "'+near+'": errore di battitura?');
   });
+
+  // Comandi: si eseguono dopo i dati, nell'ordine delle righe. Qui si simula l'effetto per mostrarlo in anteprima.
+  plan.cmds = [];
+  const cRows = table('comandi', 'Comandi', ['Comando'], ['Valore 1','Valore 2','Note']) || [];
+  if(cRows.length){
+    let sim = archive.map(a => ({ d:dateKey(a.date), file:false })).concat(plan.ops.filter(o => o.type === 'add').map(o => ({ d:o.date, file:true })));
+    sim.sort((x, y) => x.d < y.d ? -1 : (x.d > y.d ? 1 : 0));
+    const simKeys = () => { const seen = {}; return sim.map(x => { seen[x.d] = (seen[x.d] || 0) + 1; return seen[x.d] === 1 ? x.d : x.d+'-'+seen[x.d]; }); };
+    const names = new Set(Object.keys(idByNorm).concat(Array.from(wanted.keys())));
+    const known = nm => names.has(normName(nm));
+    const push = (kind, text, n, extra) => plan.cmds.push(Object.assign({ kind, text, n }, extra || {}));
+    cRows.forEach(r => {
+      const cm = normName(r['Comando']), v1 = r['Valore 1'], v2 = r['Valore 2'], at = 'Comandi';
+      const nm1 = cleanText(String(v1)).replace(/\s+/g, ' ').trim();
+      if(cm === 'elimina tornei prima di'){
+        const k = parseTournamentKey(v1); if(!k){ err(at, r._r, 'data non valida ('+v1+')'); return; }
+        const gone = sim.filter(x => x.d < k.date), inFile = gone.filter(x => x.file).length;
+        sim = sim.filter(x => x.d >= k.date);
+        push('delBefore', 'Elimina i tornei prima del '+k.date+': '+gone.length+(inFile ? ' (di cui '+inFile+' presenti nel file stesso)' : ''), gone.length, { date:k.date, del:true });
+      } else if(cm === 'elimina torneo' || cm === 'escludi torneo' || cm === 'includi torneo'){
+        const k = parseTournamentKey(v1); if(!k){ err(at, r._r, 'data del torneo non valida ('+v1+')'); return; }
+        const i = simKeys().indexOf(k.key);
+        const verb = cm === 'elimina torneo' ? 'Elimina' : (cm === 'escludi torneo' ? 'Escludi dai calcoli' : 'Includi nei calcoli');
+        if(i < 0){ plan.warnings.push(verb+' il torneo '+k.key+': non trovato, ignorato.'); return; }
+        if(cm === 'elimina torneo'){ sim.splice(i, 1); push('del', verb+' il torneo '+k.key, 1, { key:k.key, del:true }); }
+        else push(cm === 'escludi torneo' ? 'excl' : 'incl', verb+' il torneo '+k.key, 1, { key:k.key });
+      } else if(cm === 'data inizio calcoli'){
+        let from = '';
+        if(String(v1).trim() !== ''){ const k = parseTournamentKey(v1); if(!k){ err(at, r._r, 'data non valida ('+v1+')'); return; } from = k.date; }
+        push('from', 'Data inizio calcoli: '+(from || 'tutti i tornei'), from !== calc.from ? 1 : 0, { value:from });
+      } else if(cm === 'rating di partenza'){
+        const b = normName(v1);
+        const base = /^(valore impostato|impostato|set)$/.test(b) ? 'set' : (b === '1000' ? '1000' : null);
+        if(!base){ err(at, r._r, 'valore non valido ('+v1+'): scrivi "valore impostato" oppure 1000'); return; }
+        push('base', 'Rating di partenza: '+(base === '1000' ? '1000 per tutti' : 'valore impostato'), base !== calc.base ? 1 : 0, { value:base });
+      } else if(cm === 'serie e record'){
+        const b = normName(v1), all = /^(tutta la storia|tutta|tutti)$/.test(b), only = /^(dalla data di inizio|dalla data|solo dalla data di inizio)$/.test(b);
+        if(!all && !only){ err(at, r._r, 'valore non valido ('+v1+'): scrivi "tutta la storia" oppure "dalla data di inizio"'); return; }
+        push('rec', 'Serie e record: '+(all ? 'tutta la storia' : 'dalla data di inizio calcoli'), all !== (calc.recAll !== false) ? 1 : 0, { value:all });
+      } else if(cm === 'rating iniziale'){
+        const v = xlNum(v2);
+        if(!known(nm1)){ err(at, r._r, 'giocatore sconosciuto ('+nm1+')'); return; }
+        if(v === null || Number.isNaN(v) || v < 100 || v > 3000){ err(at, r._r, 'rating non valido ('+v2+')'); return; }
+        const id = idByNorm[normName(nm1)];
+        push('rating', 'Rating iniziale di '+nm1+': '+(Math.round(v*10)/10), (!id || roster[id].elo0 !== Math.round(v*10)/10) ? 1 : 0, { name:nm1, value:Math.round(v*10)/10 });
+      } else if(cm === 'congela' || cm === 'scongela' || cm === 'nascondi' || cm === 'mostra'){
+        if(!known(nm1)){ err(at, r._r, 'giocatore sconosciuto ('+nm1+')'); return; }
+        const id = idByNorm[normName(nm1)], p = id && roster[id];
+        const field = (cm === 'congela' || cm === 'scongela') ? 'frozen' : 'hidden', want = (cm === 'congela' || cm === 'nascondi');
+        push('flag', r['Comando'].toString().trim().charAt(0).toUpperCase()+r['Comando'].toString().trim().slice(1).toLowerCase()+' '+nm1, (!p || !!p[field] !== want) ? 1 : 0, { name:nm1, field, want });
+      } else if(cm === 'rinomina giocatore'){
+        const nw = cleanText(String(v2)).replace(/\s+/g, ' ').trim();
+        if(!nw){ err(at, r._r, 'manca il nuovo nome'); return; }
+        if(!known(nm1)){
+          if(known(nw)){ plan.warnings.push('Rinomina '+nm1+' in '+nw+': già fatto, ignorato.'); return; }
+          err(at, r._r, 'giocatore sconosciuto ('+nm1+')'); return;
+        }
+        if(known(nw) && normName(nw) !== normName(nm1)){ err(at, r._r, 'esiste già un giocatore chiamato '+nw); return; }
+        names.delete(normName(nm1)); names.add(normName(nw));
+        push('rename', 'Rinomina '+nm1+' in '+nw, 1, { from:nm1, to:nw });
+      } else {
+        err(at, r._r, 'comando non riconosciuto ('+r['Comando']+')');
+      }
+    });
+  }
   return plan;
 }
 // Righe confrontabili di un torneo già in archivio (stesso formato dell'export)
@@ -1993,7 +2063,7 @@ function entryFromSpec(op, old){
         const pa = [idOf(m.names[0]), idOf(m.names[1])], pb = [idOf(m.names[2]), idOf(m.names[3])];
         pa.concat(pb).forEach(i => playing.add(i));
         const nmOf = i => roster[i] ? roster[i].name : i;
-        const o = { pa, pb, a:pa.map(nmOf).join(' & '), b:pb.map(nmOf).join(' & '), s1:m.s1, s2:m.s2, court:ci };
+        const o = { pa, pb, a:pa.map(nmOf).join(' & '), b:pb.map(nmOf).join(' & '), s1:m.s1, s2:m.s2, court:ci, sides:{ a:pa.slice(), b:pb.slice() } };
         if(m.tb) o.tb = m.tb;
         return o;
       });
@@ -2012,8 +2082,10 @@ function entryFromSpec(op, old){
 function applyImportPlan(){
   const plan = importPlan;
   if(!plan || plan.errors.length) return;
-  const changes = plan.ops.filter(o => o.type !== 'same').length + plan.playerUpdates.length;
+  const changes = plan.ops.filter(o => o.type !== 'same').length + plan.playerUpdates.length + (plan.cmds || []).filter(c => c.n > 0).length;
   if(!changes){ importPlan = null; dataMsg = 'Niente da importare: il file coincide con i dati dell\'app.'; render(); return; }
+  const dels = (plan.cmds || []).filter(c => c.del).reduce((n, c) => n + c.n, 0);
+  if(dels && !confirm('I comandi eliminano '+dels+(dels === 1 ? ' torneo' : ' tornei')+' (si può annullare con "Annulla ultima importazione"). Continuare?')) return;
   // copia di sicurezza per "Annulla ultima importazione"
   importUndo = JSON.parse(JSON.stringify({ at:new Date().toISOString(), file:plan.file, roster, archive, calc }));
   try{ localStorage.setItem(IMPORT_UNDO_KEY, JSON.stringify(importUndo)); }catch(e){ /* resta in memoria: annullabile finché l'app è aperta */ }
@@ -2033,14 +2105,39 @@ function applyImportPlan(){
   });
   fresh.forEach(e => archive.push(e));
   sortArchive();
+  (plan.cmds || []).forEach(applyImportCommand);
   ensureArchiveIds();
   recomputeRatings();
   ratingSummary = null; expandedArchiveIdx = null; editingArchiveIdx = null;
   saveRoster(); saveArchive();
   const n = (t) => plan.ops.filter(o => o.type === t).length;
   importPlan = null;
-  dataMsg = 'Importazione completata: '+n('add')+' tornei aggiunti, '+n('update')+' aggiornati.';
+  const nc = (plan.cmds || []).filter(c => c.n > 0).length;
+  dataMsg = 'Importazione completata: '+n('add')+' tornei aggiunti, '+n('update')+' aggiornati'+(nc ? ', '+nc+(nc === 1 ? ' comando eseguito' : ' comandi eseguiti') : '')+'.';
   render();
+}
+function applyImportCommand(c){
+  const idOfName = nm => { const k = normName(nm); return Object.keys(roster).find(id => normName(roster[id].name) === k); };
+  const idxOfKey = k => tournamentKeys().indexOf(k);
+  if(c.kind === 'delBefore') archive = archive.filter(a => dateKey(a.date) >= c.date);
+  else if(c.kind === 'del'){ const i = idxOfKey(c.key); if(i >= 0) archive.splice(i, 1); }
+  else if(c.kind === 'excl' || c.kind === 'incl'){ const i = idxOfKey(c.key); if(i >= 0){ if(c.kind === 'excl') archive[i].excluded = true; else delete archive[i].excluded; } }
+  else if(c.kind === 'from'){ calc.from = c.value; saveCalc(); }
+  else if(c.kind === 'base'){ calc.base = c.value; saveCalc(); }
+  else if(c.kind === 'rec'){ calc.recAll = !!c.value; saveCalc(); }
+  else if(c.kind === 'rating'){ const id = idOfName(c.name); if(id) roster[id].elo0 = c.value; }
+  else if(c.kind === 'flag'){ const id = idOfName(c.name); if(id) roster[id][c.field] = c.want; }
+  else if(c.kind === 'rename'){
+    const id = idOfName(c.from); if(!id) return;
+    roster[id].name = c.to;
+    // nomi "di comodo" memorizzati nei tornei archiviati
+    const fix = x => String(x).split(' & ').map(seg => seg === c.from ? c.to : seg).join(' & ');
+    archive.forEach(a => {
+      (a.teams || []).forEach(tm => { tm.name = fix(tm.name); });
+      (a.history || []).forEach(h => (h.matches || []).forEach(m => { m.a = fix(m.a); m.b = fix(m.b); }));
+      (a.extras || []).forEach(x => { x.teamA = (x.teamA || []).map(fix); x.teamB = (x.teamB || []).map(fix); });
+    });
+  }
 }
 function cancelImportPlan(){ importPlan = null; render(); }
 function undoImport(){
@@ -2089,11 +2186,12 @@ function importPreviewHtml(){
     h += '<li>Partite lette: <b>'+p.nMatches+'</b> · extra: <b>'+p.nExtras+'</b></li>';
     if(p.newPlayers.length) h += '<li>Nuovi giocatori: <b>'+esc(list(p.newPlayers, 10))+'</b></li>';
     if(p.playerChanges.length) h += '<li>Giocatori modificati: '+esc(list(p.playerChanges, 5))+'</li>';
+    if((p.cmds || []).length) h += '<li>Comandi ('+p.cmds.length+'):<ul style="padding-left:16px;">'+p.cmds.map(c => '<li'+(c.del && c.n ? ' style="font-weight:600;"' : '')+'>'+esc(c.text)+(c.n ? '' : ' <span style="opacity:.7;">(nessun effetto)</span>')+'</li>').join('')+'</ul></li>';
     h += '</ul>';
     if(of('update').length) h += '<p class="hint" style="margin:0 0 8px;">Nei tornei aggiornati partite, squadre e partite extra vengono riscritte come nel file (ritiri e sostituzioni registrati in app si perdono).</p>';
   }
   if(p.warnings.length) h += '<p class="hint" style="margin:0 0 8px;"><b>Attenzione:</b> '+p.warnings.slice(0, 8).map(esc).join(' · ')+'</p>';
-  const changes = of('add').length + of('update').length + of('flag').length + p.playerUpdates.length;
+  const changes = of('add').length + of('update').length + of('flag').length + p.playerUpdates.length + (p.cmds || []).filter(c => c.n > 0).length;
   h += '<div class="data-row">';
   if(!p.errors.length && changes) h += '<button class="primary" onclick="applyImportPlan()">Applica</button>';
   h += '<button class="ghost" onclick="cancelImportPlan()">'+(p.errors.length || !changes ? 'Chiudi' : 'Annulla')+'</button></div>';
@@ -2176,7 +2274,7 @@ function dataSection(){
   html += importPreviewHtml();
   html += '<div class="data-row"><button class="ghost" onclick="shareBackup()">Condividi backup</button>';
   html += '<button class="ghost" onclick="exportData()">Scarica (.zip)</button></div>';
-  html += '<div class="data-row"><button class="ghost" onclick="exportExcel()">Esporta in Excel (.xlsx)</button><label class="ghost" for="importXlsx" style="cursor:pointer;">Importa da Excel</label><input type="file" id="importXlsx" accept=".xlsx" onchange="handleXlsxFile(this.files[0]); this.value=\'\'" style="display:none;" /></div>';
+  html += '<div class="data-row" style="margin-top:18px;"><button class="ghost" onclick="exportExcel()">Esporta in Excel (.xlsx)</button><label class="ghost" for="importXlsx" style="cursor:pointer;">Importa da Excel</label><input type="file" id="importXlsx" accept=".xlsx" onchange="handleXlsxFile(this.files[0]); this.value=\'\'" style="display:none;" /></div>';
   if(importUndo) html += '<div class="data-row"><button class="ghost" onclick="undoImport()">Annulla ultima importazione ('+esc(importUndo.file)+')</button></div>';
   html += '<div class="data-row data-sep"><label class="ghost" for="importFile" style="cursor:pointer;">Importa backup</label></div>';
   html += '<input type="file" id="importFile" accept=".txt,.json,.zip,text/plain,application/json,application/zip" onchange="handleImportFile(this.files[0])" />';
@@ -2184,6 +2282,7 @@ function dataSection(){
   html += '<p class="section-label" style="margin-top:14px;">Calcolo delle classifiche</p>';
   html += '<div class="data-row"><label style="font-size:13.5px;">Conta i tornei dal <input type="date" value="'+esc(calc.from)+'" onchange="setCalcFrom(this.value)" /></label></div>';
   html += '<div class="data-row"><label style="font-size:13.5px;">Rating di partenza <select onchange="setCalcBase(this.value)"><option value="set"'+(calc.base==='set'?' selected':'')+'>valore impostato</option><option value="1000"'+(calc.base==='1000'?' selected':'')+'>1000 per tutti</option></select></label></div>';
+  html += '<div class="data-row"><label style="font-size:13.5px;display:flex;align-items:center;gap:8px;"><input type="checkbox" '+(calc.recAll !== false ? 'checked' : '')+' onchange="setRecAll(this.checked)" style="width:18px;height:18px;" /> Serie e record: usa tutta la storia, anche prima della data di inizio</label></div>';
   html += '<p class="hint">Contano '+archive.filter(countsForRatings).length+' tornei su '+archive.length+'. Quelli prima della data restano in archivio ma non entrano in Elo, Glicko-2, % vittorie e classifica squadre. I giocatori congelati tengono il loro valore. Data vuota = conta tutto.</p>';
   if(dataMsg){ html += '<p class="hint" style="margin-top:8px;">'+dataMsg+'</p>'; }
   html += '</section>';
@@ -2191,6 +2290,7 @@ function dataSection(){
 }
 function applyCalc(){ saveCalc(); recomputeRatings(); ratingSummary = null; saveRoster(); saveArchive(); render(); }
 function setCalcFrom(v){ calc.from = cleanCalc({ from:v }).from; applyCalc(); }
+function setRecAll(on){ calc.recAll = !!on; saveCalc(); render(); }
 function setCalcBase(v){ calc.base = (v === '1000') ? '1000' : 'set'; applyCalc(); }
 
 function teamKeyIds(ids){ return [...ids].sort().join('|'); }
@@ -2941,14 +3041,13 @@ function archiveApplyMoves(a, moves){
   a.roundsPlayed = a.history.length;
 }
 function archiveSwapRow(a, m, hi, mi){
-  if(a.mode && a.mode !== 'fixed') return '';
   const f = matchSwapFlags(a, m);
   if(!f.usable) return '';
   const tip = 'title="Spunta se in questa partita la squadra ha giocato coi lati Sx/Dx scambiati"';
   let out = '<div class="swap-row">'
     + '<label '+tip+'><input type="checkbox" id="ea_'+hi+'_'+mi+'_swA" '+(f.A?'checked':'')+' /><span>Lati invertiti</span></label>'
     + '<label class="right" '+tip+'><input type="checkbox" id="ea_'+hi+'_'+mi+'_swB" '+(f.B?'checked':'')+' /><span>Lati invertiti</span></label></div>';
-  if(!f.rec) out += '<p class="hint" style="margin:0;font-size:11.5px;">Lati non registrati: se spunti una squadra, per l\'altra si assume l\'ordine normale.</p>';
+  if(!f.rec) out += '<p class="hint" style="margin:0;font-size:11.5px;">Lati non registrati: si assume l\'ordine mostrato (primo = Sx, secondo = Dx); se spunti una squadra, per l\'altra resta quello.</p>';
   return out;
 }
 function archiveDetailBody(a, i){
@@ -3285,7 +3384,9 @@ function generateRotatingRound(){
   }
   const playing = pool.filter(id => !restIds.includes(id));
   const groups = (t.mode === 'messicano') ? messicanoGroups(playing, matchesCount) : americanoGroups(playing, matchesCount);
-  t.currentMatches = groups.map(([pa,pb], court) => ({ pa, pb, aName: pa.map(playerName).join(' & '), bName: pb.map(playerName).join(' & '), court }));
+  // Dentro ogni coppia il primo è Sx e il secondo Dx: se i lati dichiarati in rubrica sono opposti li si mette nell'ordine giusto.
+  const sideFirst = pair => (roster[pair[0]] && roster[pair[0]].side === 'Dx' && roster[pair[1]] && roster[pair[1]].side === 'Sx') ? [pair[1], pair[0]] : pair;
+  t.currentMatches = groups.map(([pa,pb], court) => { pa = sideFirst(pa); pb = sideFirst(pb); return { pa, pb, aName: pa.map(playerName).join(' & '), bName: pb.map(playerName).join(' & '), court }; });
   t.restingThisRound = restIds;
   roundDraft = {};
   pairEdit = null;
@@ -3311,7 +3412,10 @@ function submitRotatingResults(){
     const tb = isTiedSix(s1, s2) ? [parseInt(document.getElementById('tb1_'+idx).value), parseInt(document.getElementById('tb2_'+idx).value)] : undefined;
     const gmP = strengthMap();
     const av = teamStrengthIds(m.pa, gmP), bv = teamStrengthIds(m.pb, gmP);
-    const rec = { pa:m.pa, pb:m.pb, a: m.aName, b: m.bName, s1, s2, tb, court: idx };
+    // Lato di gioco: l'ordine nella coppia è Sx/Dx; la spunta "lati invertiti" lo capovolge per questa partita.
+    const rd = roundDraft[idx] || {};
+    const sides = { a: rd.swA ? m.pa.slice().reverse() : m.pa.slice(), b: rd.swB ? m.pb.slice().reverse() : m.pb.slice() };
+    const rec = { pa:m.pa, pb:m.pb, a: m.aName, b: m.bName, s1, s2, tb, court: idx, sides };
     if(av !== null && bv !== null) rec.pA = Math.round(winProb(av, bv) * 1000) / 1000;
     return rec;
   });
@@ -3330,6 +3434,7 @@ function undoRotatingRound(){
   (last.resting || []).forEach(id => { if(t.restCounts[id] > 0) t.restCounts[id]--; });
   t.restingThisRound = last.resting || [];
   roundDraft = {};
+  last.matches.forEach((m, idx) => { if(m.sides){ roundDraft[idx] = { swA: m.sides.a[0] !== m.pa[0], swB: m.sides.b[0] !== m.pb[0] }; } });
   pairEdit = null;
   saveTournament();
   render();
@@ -4173,6 +4278,78 @@ let viewingPlayerId = null;
 function openPlayerProfile(id){ viewingPlayerId = id; render(); }
 function closePlayerProfile(){ viewingPlayerId = null; render(); }
 
+// ---------- serie e record ----------
+// Ordine cronologico (archivio ordinato per data, turni in ordine). Contano le partite dei turni, non le extra; un pareggio vero interrompe le serie.
+// Di base contano anche i tornei prima della data di inizio calcoli (calc.recAll); i tornei esclusi mai.
+function recordsCounts(a){ return !a.excluded && (calc.recAll !== false || countsForRatings(a)); }
+function computeRecords(){
+  const P = {}, pairs = {};
+  const st = id => P[id] || (P[id] = { cur:{ kind:'', n:0, from:'' }, bestW:{ n:0, from:'', to:'' }, bestL:{ n:0, from:'', to:'' }, matches:0, tournaments:0 });
+  archive.forEach(a => {
+    if(!recordsCounts(a)) return;
+    const d = dateKey(a.date), seen = {};
+    (a.history || []).slice().sort((x, y) => x.round - y.round).forEach(h => (h.matches || []).forEach(m => {
+      const base = matchBaseIds(a, m), r = matchWinner(m.s1, m.s2, m.tb);
+      [[base.a || [], r === 1 ? 1 : (r === 0 ? 0 : 0.5)], [base.b || [], r === 0 ? 1 : (r === 1 ? 0 : 0.5)]].forEach(([team, v]) => {
+        team.forEach(id => {
+          const s = st(id); s.matches++;
+          if(!seen[id]){ seen[id] = true; s.tournaments++; }
+          const kind = v === 1 ? 'W' : (v === 0 ? 'L' : '');
+          if(!kind){ s.cur = { kind:'', n:0, from:'' }; return; }
+          if(s.cur.kind === kind) s.cur.n++; else s.cur = { kind, n:1, from:d };
+          const best = kind === 'W' ? s.bestW : s.bestL;
+          if(s.cur.n > best.n){ best.n = s.cur.n; best.from = s.cur.from; best.to = d; }
+        });
+        if(team.length === 2){
+          const ids = team.slice().sort(), k = ids.join('+'), c = pairs[k] || (pairs[k] = { ids, m:0, w:0 });
+          c.m++; c.w += v;
+        }
+      });
+    }));
+  });
+  return { P, pairs };
+}
+const itDate = k => k ? k.slice(8, 10)+'/'+k.slice(5, 7)+'/'+k.slice(0, 4) : '';
+const recPeriod = o => o.from === o.to ? itDate(o.from) : itDate(o.from)+' – '+itDate(o.to);
+function recRow(label, who, val, sub, color){
+  return '<div class="stat-box"><div><p style="margin:0;font-size:12px;color:var(--ink-dim);">'+label+'</p>'+(who ? '<p style="margin:4px 0 0;font-weight:600;">'+esc(who)+'</p>' : '')+(sub ? '<p style="margin:2px 0 0;font-size:11.5px;color:var(--ink-dim);">'+esc(sub)+'</p>' : '')+'</div><div class="val"'+(color ? ' style="color:'+color+';"' : '')+'>'+val+'</div></div>';
+}
+function recordsProfileHtml(id, eloHistory){
+  const s = computeRecords().P[id];
+  if(!s || !s.matches) return '';
+  const scope = calc.recAll !== false ? 'tutta la storia' : 'dalla data di inizio calcoli';
+  let h = '<p class="section-label" style="margin-top:14px;">Serie e record ('+scope+')</p>';
+  h += recRow('Miglior serie di vittorie', '', s.bestW.n, s.bestW.n ? recPeriod(s.bestW) : '');
+  h += recRow('Serie in corso', '', s.cur.n ? s.cur.n+(s.cur.kind === 'W' ? ' vitt.' : ' sconf.') : '—', s.cur.n ? 'dal '+itDate(s.cur.from) : 'ultima partita pareggiata o nessuna', s.cur.kind === 'L' ? 'var(--danger)' : '');
+  h += recRow('Peggior serie di sconfitte', '', s.bestL.n, s.bestL.n ? recPeriod(s.bestL) : '', s.bestL.n ? 'var(--danger)' : '');
+  const peak = eloHistory.filter(e => e.d).reduce((b, e) => (!b || e.val > b.val) ? e : b, null);
+  if(peak) h += recRow('Rating massimo', '', Math.round(peak.val), 'raggiunto il '+itDate(peak.d));
+  h += recRow('Partite · tornei giocati', '', s.matches+' · '+s.tournaments, '');
+  return h;
+}
+function recordsGroupHtml(){
+  const { P, pairs } = computeRecords();
+  const ids = Object.keys(P).filter(id => roster[id] && !roster[id].hidden && !roster[id].frozen);
+  if(!ids.length) return '';
+  const nm = id => roster[id].name;
+  const top = (arr, f) => arr.slice().sort((x, y) => f(y) - f(x) || nm(x).localeCompare(nm(y)))[0];
+  let h = '<section><p class="section-label">Record del gruppo ('+(calc.recAll !== false ? 'tutta la storia' : 'dalla data di inizio calcoli')+')</p>';
+  const bw = top(ids, id => P[id].bestW.n);
+  if(P[bw].bestW.n >= 2) h += recRow('Miglior serie di vittorie', nm(bw), P[bw].bestW.n, recPeriod(P[bw].bestW));
+  const cw = top(ids.filter(id => P[id].cur.kind === 'W'), id => P[id].cur.n);
+  if(cw && P[cw].cur.n >= 2) h += recRow('Serie di vittorie in corso', nm(cw), P[cw].cur.n, 'dal '+itDate(P[cw].cur.from));
+  const bl = top(ids, id => P[id].bestL.n);
+  if(P[bl].bestL.n >= 2) h += recRow('Peggior serie di sconfitte', nm(bl), P[bl].bestL.n, recPeriod(P[bl].bestL), 'var(--danger)');
+  let pk = null;
+  archive.forEach(a => { if(!countsForRatings(a)) return; (a.ratingChanges || []).forEach(c => { if(ids.includes(c.id) && (!pk || c.after > pk.val)) pk = { id:c.id, val:c.after, d:dateKey(a.date) }; }); });
+  if(pk) h += recRow('Rating massimo', nm(pk.id), Math.round(pk.val), 'raggiunto il '+itDate(pk.d));
+  const bp = Object.values(pairs).filter(c => c.m >= 6 && c.ids.every(i => roster[i] && !roster[i].hidden)).sort((x, y) => y.w/y.m - x.w/x.m || y.m - x.m)[0];
+  if(bp) h += recRow('Miglior coppia (almeno 6 partite)', bp.ids.map(nm).sort((x, y) => x.localeCompare(y)).join(' & '), Math.round(bp.w/bp.m*100)+'%', bp.m+' partite insieme');
+  const mm = top(ids, id => P[id].matches), mt = top(ids, id => P[id].tournaments);
+  h += recRow('Più partite giocate', nm(mm), P[mm].matches, '');
+  h += recRow('Più tornei giocati', nm(mt), P[mt].tournaments, '');
+  return h + '</section>';
+}
 function playerProfileView(id){
   const p = roster[id];
   if(!p) return '';
@@ -4188,7 +4365,7 @@ function playerProfileView(id){
     if(!countsForRatings(a)) return;
     if(a.ratingChanges){
       const change = a.ratingChanges.find(r => r.id === id);
-      if(change) eloHistory.push({ label: 'T'+(aIdx+1), val: change.after });
+      if(change) eloHistory.push({ label: 'T'+(aIdx+1), val: change.after, d: dateKey(a.date) });
     }
     // Glicko progressivo: ricalcola dopo ogni torneo incluso
     glickoSlice.push(a);
@@ -4197,7 +4374,7 @@ function playerProfileView(id){
     if(gRow) glickoHistory.push({ label: 'T'+(aIdx+1), val: gRow.rating, rd: gRow.rd });
 
     (a.history || []).forEach(h => (h.matches || []).forEach(m => {
-      if(!m.sides) return;   // solo partite con lato registrato (dalla v28, squadre fisse)
+      if(!m.sides) return;   // solo partite con lato registrato (squadre fisse dalla v28, Americano/Messicano dalla v41)
       const iA = (m.sides.a || []).indexOf(id), iB = (m.sides.b || []).indexOf(id);
       if(iA < 0 && iB < 0) return;
       const mine = iA >= 0 ? m.sides.a : m.sides.b, pos = iA >= 0 ? iA : iB;
@@ -4257,7 +4434,7 @@ function playerProfileView(id){
       const s2 = computeEloStates(slice, false);
       if(s2[id]){
         if(running === null) eloHistory[0] = { label: 'Inizio', val: startState(id).elo };
-        eloHistory.push({ label: 'T'+(aIdx+1), val: s2[id].elo });
+        eloHistory.push({ label: 'T'+(aIdx+1), val: s2[id].elo, d: dateKey(a.date) });
         running = s2[id].elo;
       }
     });
@@ -4332,6 +4509,7 @@ function playerProfileView(id){
   html += '<p style="margin:4px 0 0;font-weight:600;">'+(nemeses.length ? esc(nemeses[0].name) : 'Dati insufficienti')+'</p></div>';
   if(nemeses.length) html += '<div class="val" style="color:var(--danger);">'+Math.round(nemeses[0].wr*100)+'%<span style="font-size:11px;font-weight:400;color:var(--ink-dim);"> tue V</span></div>';
   html += '</div>';
+  html += recordsProfileHtml(id, eloHistory);
   if(sideStats.Sx.m + sideStats.Dx.m > 0){
     const pc = o => o.m ? Math.round(o.w / o.m * 100) + '%' : '—';
     const f1 = x => (Math.round(x * 10) / 10).toFixed(1).replace('.', ',');
@@ -4365,7 +4543,7 @@ function playerProfileView(id){
 
 function rankingView(){
   const all = activeKeys().map(k => ({key:k, ...roster[k]})).filter(p => !p.frozen);
-  const diagBtn = '<button class="ghost" style="margin-top:14px;" onclick="showDiag=true;showRanking=false;render();">Diagnostica rating</button>';
+  const diagBtn = recordsGroupHtml() + '<button class="ghost" style="margin-top:14px;" onclick="showDiag=true;showRanking=false;render();">Diagnostica rating</button>';
   let html = '<section><p class="section-label">Classifica giocatori</p>';
   if(activeKeys().some(k => roster[k].frozen)){ html += '<p class="hint">I giocatori con rating ❄ congelato non compaiono in classifica.</p>'; }
   html += '<div class="seg"><button class="small'+(rankMode==='elo'?' on':'')+'" onclick="setRankMode(\'elo\')">Elo</button>';
@@ -4688,7 +4866,7 @@ function renderMain(){
         html += '<input class="score-input" id="s2_'+idx+'" aria-label="Game '+esc(nameB)+'" type="number" min="0" inputmode="numeric" value="'+esc(rd.s2||'')+'" oninput="setRoundScore('+idx+',\'s2\',this.value); toggleTbRow(\'s1_'+idx+'\',\'s2_'+idx+'\',\'tbrow_'+idx+'\')" />';
         html += '<span class="team-name right">'+teamLabelHtml(nameB)+'</span></div>';
         html += '<div class="tb-row" id="tbrow_'+idx+'" style="'+(tbOpen?'':'display:none;')+'"><span class="tb-label">Tie-break</span><input class="score-input tb-input" id="tb1_'+idx+'" type="number" min="0" inputmode="numeric" value="'+esc(rd.tb1||'')+'" oninput="setRoundScore('+idx+',\'tb1\',this.value)" /><span class="dash">&ndash;</span><input class="score-input tb-input" id="tb2_'+idx+'" type="number" min="0" inputmode="numeric" value="'+esc(rd.tb2||'')+'" oninput="setRoundScore('+idx+',\'tb2\',this.value)" /></div>';
-        if(!rotating){
+        {
           html += '<div class="swap-row">'
             + '<label title="Spunta se in questa partita la squadra ha giocato coi lati Sx/Dx scambiati"><input type="checkbox" '+(rd.swA?'checked':'')+' onchange="setRoundSwap('+idx+',\'A\',this.checked)" /><span>Lati invertiti</span></label>'
             + '<label class="right" title="Spunta se in questa partita la squadra ha giocato coi lati Sx/Dx scambiati"><input type="checkbox" '+(rd.swB?'checked':'')+' onchange="setRoundSwap('+idx+',\'B\',this.checked)" /><span>Lati invertiti</span></label></div>';
