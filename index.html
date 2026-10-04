@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v43">
+<meta name="app-version" content="v44">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -4314,7 +4314,7 @@ const recPeriod = o => o.from === o.to ? itDate(o.from) : itDate(o.from)+' – '
 function recRow(label, who, val, sub, color){
   return '<div class="stat-box"><div><p style="margin:0;font-size:12px;color:var(--ink-dim);">'+label+'</p>'+(who ? '<p style="margin:4px 0 0;font-weight:600;">'+esc(who)+'</p>' : '')+(sub ? '<p style="margin:2px 0 0;font-size:11.5px;color:var(--ink-dim);">'+esc(sub)+'</p>' : '')+'</div><div class="val"'+(color ? ' style="color:'+color+';"' : '')+'>'+val+'</div></div>';
 }
-function recordsProfileHtml(id, eloHistory){
+function recordsProfileHtml(id, eloHistory, glickoHistory){
   const s = computeRecords().P[id];
   if(!s || !s.matches) return '';
   const scope = calc.recAll !== false ? 'tutta la storia' : 'dalla data di inizio calcoli';
@@ -4322,8 +4322,10 @@ function recordsProfileHtml(id, eloHistory){
   h += recRow('Miglior serie di vittorie', '', s.bestW.n, s.bestW.n ? recPeriod(s.bestW) : '');
   h += recRow('Serie in corso', '', s.cur.n ? s.cur.n+(s.cur.kind === 'W' ? ' vitt.' : ' sconf.') : '—', s.cur.n ? 'dal '+itDate(s.cur.from) : 'ultima partita pareggiata o nessuna', s.cur.kind === 'L' ? 'var(--danger)' : '');
   h += recRow('Peggior serie di sconfitte', '', s.bestL.n, s.bestL.n ? recPeriod(s.bestL) : '', s.bestL.n ? 'var(--danger)' : '');
-  const peak = eloHistory.filter(e => e.d).reduce((b, e) => (!b || e.val > b.val) ? e : b, null);
-  if(peak) h += recRow('Rating massimo', '', Math.round(peak.val), 'raggiunto il '+itDate(peak.d));
+  // Il rating massimo segue la classifica scelta: Glicko-2 se è selezionato, altrimenti Elo.
+  const gl = rankMode === 'glicko', series = gl ? (glickoHistory || []) : eloHistory;
+  const peak = series.filter(e => e.d).reduce((b, e) => (!b || e.val > b.val) ? e : b, null);
+  if(peak) h += recRow('Rating massimo ('+(gl ? 'Glicko-2' : 'Elo')+')', '', Math.round(peak.val), 'raggiunto il '+itDate(peak.d));
   h += recRow('Partite · tornei giocati', '', s.matches+' · '+s.tournaments, '');
   return h;
 }
@@ -4340,9 +4342,16 @@ function recordsGroupHtml(){
   if(cw && P[cw].cur.n >= 2) h += recRow('Serie di vittorie in corso', nm(cw), P[cw].cur.n, 'dal '+itDate(P[cw].cur.from));
   const bl = top(ids, id => P[id].bestL.n);
   if(P[bl].bestL.n >= 2) h += recRow('Peggior serie di sconfitte', nm(bl), P[bl].bestL.n, recPeriod(P[bl].bestL), 'var(--danger)');
+  // Il rating massimo segue la classifica scelta: Glicko-2 (ricalcolato torneo dopo torneo) se è selezionato, altrimenti Elo.
+  const gl = rankMode === 'glicko';
   let pk = null;
-  archive.forEach(a => { if(!countsForRatings(a)) return; (a.ratingChanges || []).forEach(c => { if(ids.includes(c.id) && (!pk || c.after > pk.val)) pk = { id:c.id, val:c.after, d:dateKey(a.date) }; }); });
-  if(pk) h += recRow('Rating massimo', nm(pk.id), Math.round(pk.val), 'raggiunto il '+itDate(pk.d));
+  if(gl){
+    const slice = [];
+    archive.forEach(a => { if(!countsForRatings(a)) return; slice.push(a); computeGlicko(slice).forEach(r => { if(ids.includes(r.id) && (!pk || r.rating > pk.val)) pk = { id:r.id, val:r.rating, d:dateKey(a.date) }; }); });
+  } else {
+    archive.forEach(a => { if(!countsForRatings(a)) return; (a.ratingChanges || []).forEach(c => { if(ids.includes(c.id) && (!pk || c.after > pk.val)) pk = { id:c.id, val:c.after, d:dateKey(a.date) }; }); });
+  }
+  if(pk) h += recRow('Rating massimo ('+(gl ? 'Glicko-2' : 'Elo')+')', nm(pk.id), Math.round(pk.val), 'raggiunto il '+itDate(pk.d));
   const bp = Object.values(pairs).filter(c => c.m >= 6 && c.ids.every(i => roster[i] && !roster[i].hidden)).sort((x, y) => y.w/y.m - x.w/x.m || y.m - x.m)[0];
   if(bp) h += recRow('Miglior coppia (almeno 6 partite)', bp.ids.map(nm).sort((x, y) => x.localeCompare(y)).join(' & '), Math.round(bp.w/bp.m*100)+'%', bp.m+' partite insieme');
   const mm = top(ids, id => P[id].matches), mt = top(ids, id => P[id].tournaments);
@@ -4371,7 +4380,7 @@ function playerProfileView(id){
     glickoSlice.push(a);
     const gRows = computeGlicko(glickoSlice);
     const gRow = gRows.find(r => r.id === id);
-    if(gRow) glickoHistory.push({ label: 'T'+(aIdx+1), val: gRow.rating, rd: gRow.rd });
+    if(gRow) glickoHistory.push({ label: 'T'+(aIdx+1), val: gRow.rating, rd: gRow.rd, d: dateKey(a.date) });
 
     (a.history || []).forEach(h => (h.matches || []).forEach(m => {
       if(!m.sides) return;   // solo partite con lato registrato (squadre fisse dalla v28, Americano/Messicano dalla v41)
@@ -4509,7 +4518,7 @@ function playerProfileView(id){
   html += '<p style="margin:4px 0 0;font-weight:600;">'+(nemeses.length ? esc(nemeses[0].name) : 'Dati insufficienti')+'</p></div>';
   if(nemeses.length) html += '<div class="val" style="color:var(--danger);">'+Math.round(nemeses[0].wr*100)+'%<span style="font-size:11px;font-weight:400;color:var(--ink-dim);"> tue V</span></div>';
   html += '</div>';
-  html += recordsProfileHtml(id, eloHistory);
+  html += recordsProfileHtml(id, eloHistory, glickoHistory);
   if(sideStats.Sx.m + sideStats.Dx.m > 0){
     const pc = o => o.m ? Math.round(o.w / o.m * 100) + '%' : '—';
     const f1 = x => (Math.round(x * 10) / 10).toFixed(1).replace('.', ',');
