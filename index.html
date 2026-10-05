@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v46">
+<meta name="app-version" content="v47">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -516,6 +516,13 @@ function effectiveSides(a, m){
   if(a.mode && a.mode !== 'fixed') return null;
   const b = matchBaseIds(a, m);
   return (b.a && b.b && b.a.length === 2 && b.b.length === 2) ? { a:b.a, b:b.b } : null;
+}
+// Nomi delle due squadre di una partita archiviata nell'ordine dei lati (primo = Sx): lato registrato, o ordine dei nomi nelle squadre fisse.
+function matchSideNames(a, m){
+  const sd = effectiveSides(a, m);
+  if(!sd) return [m.a, m.b];
+  const nm = archiveIdNames(a), nameFor = id => (roster[id] && roster[id].name) || nm[id] || id;
+  return [sd.a.map(nameFor).join(' & '), sd.b.map(nameFor).join(' & ')];
 }
 function archiveSidesMissing(a){
   if(a.mode && a.mode !== 'fixed') return 0;
@@ -3111,7 +3118,7 @@ function archiveDetailBody(a, i){
       if(editing){
         html += '<div class="edit-match"><p class="edit-match-name">'+archMatchTitle(a, m, hi, mi)+'</p>'+scoreInputs('ea_'+hi+'_'+mi+'_1','ea_'+hi+'_'+mi+'_2',m.s1,m.s2,'ea_'+hi+'_'+mi+'_tb1','ea_'+hi+'_'+mi+'_tb2','ea_'+hi+'_'+mi+'_tbrow',m.tb)+archiveSwapRow(a, m, hi, mi)+archiveMoveRoundRow(a, hi, mi)+'</div>';
       } else {
-        html += '<div class="history-match"><span>'+m.a+' vs '+m.b+pairStrengthShort(m.a.split(' & '),m.b.split(' & '))+'</span><span class="extra-side">'+m.s1+' &ndash; '+m.s2+(m.tb?' <span class="tb-inline">(tb '+m.tb[0]+'-'+m.tb[1]+')</span>':'')+upsetTag(m)+swapTag(a, m)+' <button class="small" title="Sposta tra le partite extra" onclick="moveArchiveMatchToExtra('+i+','+hi+','+mi+')">→ extra</button><button class="small danger" onclick="askRemoveArchiveRoundMatch('+i+','+hi+','+mi+')">✕</button></span></div>';
+        html += '<div class="history-match"><span>'+esc(matchSideNames(a, m)[0])+' vs '+esc(matchSideNames(a, m)[1])+pairStrengthShort(m.a.split(' & '),m.b.split(' & '))+'</span><span class="extra-side">'+m.s1+' &ndash; '+m.s2+(m.tb?' <span class="tb-inline">(tb '+m.tb[0]+'-'+m.tb[1]+')</span>':'')+upsetTag(m)+swapTag(a, m)+' <button class="small" title="Sposta tra le partite extra" onclick="moveArchiveMatchToExtra('+i+','+hi+','+mi+')">→ extra</button><button class="small danger" onclick="askRemoveArchiveRoundMatch('+i+','+hi+','+mi+')">✕</button></span></div>';
       }
     });
   });
