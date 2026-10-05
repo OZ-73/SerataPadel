@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v45">
+<meta name="app-version" content="v46">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -195,8 +195,7 @@
   .swap-row input[type=checkbox]{width:20px;height:20px;margin:0;flex:none;accent-color:var(--ball);}
   .swap-row .swapbtn{margin:0;padding:6px 10px;min-height:32px;width:auto;font-size:12.5px;justify-self:start;}
   .swap-row .swapbtn.right{justify-self:end;}
-  .swap-row .side-lbl{font-size:12.5px;color:var(--ink);line-height:1.5;}
-  .sd{display:inline-block;min-width:20px;font-size:10px;font-weight:700;letter-spacing:.3px;opacity:.6;}
+
   .prob-line{display:block;font-size:12px;color:var(--ink-dim);font-weight:400;margin-top:2px;}
   /* App installata (PWA): rispetta tacca e barra di sistema */
   body{padding-top:env(safe-area-inset-top,0px);padding-bottom:calc(3rem + env(safe-area-inset-bottom,0px));}
@@ -1209,12 +1208,12 @@ function toggleTbRow(idA, idB, rowId){
 // (es. aggiungendo o togliendo una partita extra) non lo perde più.
 // Nome squadra su due righe ordinate: "Presidente &" / "Alessandra".
 function teamLabelHtml(name){ return esc(name).replace(' &amp; ', ' &amp;<br>'); }
-// Nomi nell'ordine dei lati: il primo è Sx, il secondo Dx; "swapped" li scambia (pulsante ⇄).
+// Nomi della squadra nell'ordine dei lati (primo = Sx, secondo = Dx); "swapped" li scambia (pulsante ⇄). La squadra resta la stessa.
 function sideLabelHtml(name, swapped){
   const parts = String(name).split(' & ');
   if(parts.length !== 2) return esc(name);
   if(swapped) parts.reverse();
-  return '<span class="sd">Sx</span> '+esc(parts[0])+'<br><span class="sd">Dx</span> '+esc(parts[1]);
+  return esc(parts[0])+' &amp;<br>'+esc(parts[1]);
 }
 function swapRoundSides(idx, which){
   if(!roundDraft[idx]) roundDraft[idx] = {};
@@ -3064,7 +3063,7 @@ function archiveApplyMoves(a, moves){
 }
 function sideInline(n1, n2, sw){
   const p = sw ? [n2, n1] : [n1, n2];
-  return '<span class="sd">Sx</span> '+esc(p[0])+' &middot; <span class="sd">Dx</span> '+esc(p[1]);
+  return esc(p[0])+' &amp; '+esc(p[1]);
 }
 function toggleArchSwap(pre, which){
   const chk = document.getElementById(pre+'_sw'+which), lbl = document.getElementById(pre+'_lbl'+which);
@@ -3072,14 +3071,21 @@ function toggleArchSwap(pre, which){
   chk.checked = !chk.checked;
   lbl.innerHTML = sideInline(lbl.dataset.n1, lbl.dataset.n2, chk.checked);
 }
+// Titolo della partita in "Correggi": i nomi di ogni squadra nell'ordine dei lati registrato (primo = Sx); il pulsante ⇄ li scambia sul posto.
+function archMatchTitle(a, m, hi, mi){
+  const f = matchSwapFlags(a, m), vs = ' <span style="opacity:.7;">vs</span> ';
+  if(!f.usable) return esc(m.a)+vs+esc(m.b);
+  const nmOf = archiveIdNames(a), nameFor = id => (roster[id] && roster[id].name) || nmOf[id] || id, pre = 'ea_'+hi+'_'+mi;
+  const lbl = (w, ids, on) => '<span id="'+pre+'_lbl'+w+'" data-n1="'+esc(nameFor(ids[0]))+'" data-n2="'+esc(nameFor(ids[1]))+'">'+sideInline(nameFor(ids[0]), nameFor(ids[1]), on)+'</span>';
+  return lbl('A', f.base.a, f.A)+vs+lbl('B', f.base.b, f.B);
+}
 function archiveSwapRow(a, m, hi, mi){
   const f = matchSwapFlags(a, m);
   if(!f.usable) return '';
-  const nmOf = archiveIdNames(a), nameFor = id => (roster[id] && roster[id].name) || nmOf[id] || id, pre = 'ea_'+hi+'_'+mi;
-  const cell = (w, ids, on, right) => '<div'+(right ? ' style="text-align:right;"' : '')+'><div class="side-lbl" id="'+pre+'_lbl'+w+'" data-n1="'+esc(nameFor(ids[0]))+'" data-n2="'+esc(nameFor(ids[1]))+'">'+sideInline(nameFor(ids[0]), nameFor(ids[1]), on)+'</div>'
-    + '<button class="ghost swapbtn'+(right ? ' right' : '')+'" title="Scambia Sx e Dx" onclick="toggleArchSwap(\''+pre+'\',\''+w+'\')">&#8644; Sx/Dx</button>'
+  const pre = 'ea_'+hi+'_'+mi;
+  const cell = (w, on, right) => '<div><button class="ghost swapbtn'+(right ? ' right' : '')+'" title="Inverti l\'ordine dei nomi (lati Sx/Dx)" onclick="toggleArchSwap(\''+pre+'\',\''+w+'\')">&#8644; Inverti</button>'
     + '<input type="checkbox" id="'+pre+'_sw'+w+'" '+(on ? 'checked' : '')+' style="display:none;" /></div>';
-  return '<div class="swap-row" style="align-items:start;">'+cell('A', f.base.a, f.A, false)+cell('B', f.base.b, f.B, true)+'</div>';
+  return '<div class="swap-row">'+cell('A', f.A, false)+cell('B', f.B, true)+'</div>';
 }
 function archiveDetailBody(a, i){
   let html = '';
@@ -3103,7 +3109,7 @@ function archiveDetailBody(a, i){
     html += '<p class="section-label" style="margin-top:10px;">Turno '+h.round+'</p>';
     h.matches.forEach((m,mi) => {
       if(editing){
-        html += '<div class="edit-match"><p class="edit-match-name">'+esc(m.a)+' <span style="opacity:.7;">vs</span> '+esc(m.b)+'</p>'+scoreInputs('ea_'+hi+'_'+mi+'_1','ea_'+hi+'_'+mi+'_2',m.s1,m.s2,'ea_'+hi+'_'+mi+'_tb1','ea_'+hi+'_'+mi+'_tb2','ea_'+hi+'_'+mi+'_tbrow',m.tb)+archiveSwapRow(a, m, hi, mi)+archiveMoveRoundRow(a, hi, mi)+'</div>';
+        html += '<div class="edit-match"><p class="edit-match-name">'+archMatchTitle(a, m, hi, mi)+'</p>'+scoreInputs('ea_'+hi+'_'+mi+'_1','ea_'+hi+'_'+mi+'_2',m.s1,m.s2,'ea_'+hi+'_'+mi+'_tb1','ea_'+hi+'_'+mi+'_tb2','ea_'+hi+'_'+mi+'_tbrow',m.tb)+archiveSwapRow(a, m, hi, mi)+archiveMoveRoundRow(a, hi, mi)+'</div>';
       } else {
         html += '<div class="history-match"><span>'+m.a+' vs '+m.b+pairStrengthShort(m.a.split(' & '),m.b.split(' & '))+'</span><span class="extra-side">'+m.s1+' &ndash; '+m.s2+(m.tb?' <span class="tb-inline">(tb '+m.tb[0]+'-'+m.tb[1]+')</span>':'')+upsetTag(m)+swapTag(a, m)+' <button class="small" title="Sposta tra le partite extra" onclick="moveArchiveMatchToExtra('+i+','+hi+','+mi+')">→ extra</button><button class="small danger" onclick="askRemoveArchiveRoundMatch('+i+','+hi+','+mi+')">✕</button></span></div>';
       }
@@ -4910,8 +4916,8 @@ function renderMain(){
         html += '<div class="tb-row" id="tbrow_'+idx+'" style="'+(tbOpen?'':'display:none;')+'"><span class="tb-label">Tie-break</span><input class="score-input tb-input" id="tb1_'+idx+'" type="number" min="0" inputmode="numeric" value="'+esc(rd.tb1||'')+'" oninput="setRoundScore('+idx+',\'tb1\',this.value)" /><span class="dash">&ndash;</span><input class="score-input tb-input" id="tb2_'+idx+'" type="number" min="0" inputmode="numeric" value="'+esc(rd.tb2||'')+'" oninput="setRoundScore('+idx+',\'tb2\',this.value)" /></div>';
         {
           html += '<div class="swap-row">'
-            + '<button class="ghost swapbtn" title="Scambia Sx e Dx" onclick="swapRoundSides('+idx+',\'A\')">&#8644; Sx/Dx</button>'
-            + '<button class="ghost swapbtn right" title="Scambia Sx e Dx" onclick="swapRoundSides('+idx+',\'B\')">&#8644; Sx/Dx</button></div>';
+            + '<button class="ghost swapbtn" title="Inverti l\'ordine dei nomi (lati Sx/Dx)" onclick="swapRoundSides('+idx+',\'A\')">&#8644; Inverti</button>'
+            + '<button class="ghost swapbtn right" title="Inverti l\'ordine dei nomi (lati Sx/Dx)" onclick="swapRoundSides('+idx+',\'B\')">&#8644; Inverti</button></div>';
         }
         html += strengthRowHtml(courtStrengths, idx);
         html += '</div>';
