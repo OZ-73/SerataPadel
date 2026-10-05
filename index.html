@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v49">
+<meta name="app-version" content="v51">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -186,6 +186,10 @@
   #updateBar button{background:#0B3D3A;color:var(--ball);border:0;}
   #toast{display:none;position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--court);padding:10px 18px;border-radius:999px;font-family:var(--font-head);font-weight:600;font-size:14px;z-index:300;max-width:90%;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,.35);}
   .upset{color:var(--ball-dark);font-size:12px;font-weight:600;white-space:nowrap;}
+  details.why{margin:2px 0 8px;}
+  details.why summary{font-size:12.5px;cursor:pointer;color:var(--ink-dim);padding:4px 0;}
+  .why-body{font-size:12.5px;line-height:1.45;padding:2px 0 6px;}
+  .why-body p{margin:0 0 6px;}
   .prov{font-size:10.5px;font-weight:600;color:var(--ink-dim);border:1px solid var(--ink-dim);border-radius:6px;padding:0 4px;margin-left:6px;vertical-align:middle;opacity:.85;}
   button.back-active{background:var(--ball);color:#0B3D3A;border-color:var(--ball);font-weight:700;}
   .field-label{display:block;font-size:12px;color:var(--ink-dim);margin:6px 0 4px;}
@@ -3206,11 +3210,13 @@ function archiveDetailBody(a, i){
     else { html += '<button class="ghost" style="margin-top:12px;" onclick="openArchiveSub('+i+')">Sostituisci un giocatore</button>'; }
     html += '<div class="btn-pair" style="margin-top:12px;"><button class="ghost" onclick="startArchiveEdit('+i+')">Correggi risultati</button><button class="ghost" onclick="askDeleteArchive('+i+')">Elimina torneo</button></div>';
   }
+  html += badgesHtml(a);
   if(a.ratingChanges && a.ratingChanges.length){
     html += '<p class="section-label" style="margin-top:10px;">Variazioni di rating</p>';
     a.ratingChanges.forEach(r => {
       const d = Math.round((r.after - r.before)*10)/10;
       html += '<div class="history-match"><span>'+esc(r.name)+'</span><span>'+Math.round(r.before)+' &rarr; '+Math.round(r.after)+' ('+(d>0?'+':'')+d.toFixed(1)+')</span></div>';
+      html += whyDetails(r.id, i, 'elo');
     });
   }
   return html;
@@ -3634,12 +3640,16 @@ function extrasSection(){
 function ratingSummaryView(){
   if(!ratingSummary) return '';
   let html = '<section><p class="section-label">Rating aggiornati</p>';
+  const ai = archive.findIndex(a => a.ratingChanges === ratingSummary);
+  if(ai >= 0) html += badgesHtml(archive[ai]);
+  html += '<p class="section-label" style="margin-top:10px;">Variazioni di rating</p>';
   html += '<div class="rank-list">';
   ratingSummary.forEach(r => {
     const d = Math.round((r.after - r.before)*10)/10;
     html += '<div class="rank-row"><span class="rank-name">'+esc(r.name)+'</span>';
     html += '<span class="rank-meta">'+Math.round(r.before)+' &rarr; '+Math.round(r.after)+'</span>';
     html += '<span class="delta wide '+(d>0?'up':(d<0?'down':'same'))+'">'+(d>0?'+':'')+d.toFixed(1)+'</span></div>';
+    if(ai >= 0) html += whyDetails(r.id, ai, 'elo');
   });
   html += '</div><div class="btn-pair"><button class="secondary" style="margin-top:0;" onclick="shareRatingSummaryWhatsApp()">Condividi variazioni</button><button class="ghost" style="margin-top:0;" onclick="ratingSummary=null;render();">Chiudi</button></div></section>';
   return html;
@@ -3821,6 +3831,149 @@ function computeGlicko(list, hook){
   return Object.values(P)
     .filter(pl => pl.games > 0 && byId[pl.id] && !byId[pl.id].hidden)
     .map(pl => ({ id:pl.id, name:byId[pl.id].name, games:pl.games, rating: G2_BASE + G2_SCALE*pl.mu, rd: G2_SCALE*pl.phi }));
+}
+
+
+
+// ---------- riconoscimenti di fine torneo ----------
+// Solo meriti, mai "i peggiori". Si calcolano sulle partite dei turni (le extra non contano).
+function tournamentBadges(a){
+  const names = archiveIdNames(a), nm = x => (roster[x] && roster[x].name) || names[x] || x;
+  const P = {};
+  const get = id => P[id] || (P[id] = { w:0, l:0, upsets:0, tbWins:0 });
+  let bestMargin = 0, marginWinners = [];
+  (a.history || []).forEach(h => (h.matches || []).forEach(m => {
+    const b = matchBaseIds(a, m), r = matchWinner(m.s1, m.s2, m.tb);
+    (b.a || []).concat(b.b || []).forEach(get);
+    if(r === 0.5 || !b.a || !b.b) return;
+    const win = r === 1 ? b.a : b.b, lose = r === 1 ? b.b : b.a;
+    const tbWin = m.s1 === m.s2 || (Math.max(m.s1, m.s2) === 7 && Math.abs(m.s1 - m.s2) === 1);
+    win.forEach(id => { get(id).w++; if(isUpset(m)) get(id).upsets++; if(tbWin) get(id).tbWins++; });
+    lose.forEach(id => get(id).l++);
+    const diff = Math.abs(m.s1 - m.s2);
+    if(diff > bestMargin){ bestMargin = diff; marginWinners = [win]; } else if(diff === bestMargin && diff > 0) marginWinners.push(win);
+  }));
+  const ids = Object.keys(P), badges = [];
+  const top = (key, min) => { const mx = Math.max(0, ...ids.map(id => P[id][key])); return mx < min ? null : { ids: ids.filter(id => P[id][key] === mx), n: mx }; };
+  const up = top('upsets', 1);
+  if(up) badges.push({ icon:'⚡', title:'Sorpresa del torneo', ids:up.ids, note: up.n+(up.n === 1 ? ' vittoria' : ' vittorie')+' contro pronostico' });
+  if(bestMargin >= 3) badges.push({ icon:'💥', title:'Macina-game', ids:[...new Set([].concat(...marginWinners))], note:'vittoria con '+bestMargin+' game di scarto' });
+  const tbw = top('tbWins', 1);
+  if(tbw) badges.push({ icon:'🧊', title:'Nervi saldi', ids:tbw.ids, note: tbw.n+(tbw.n === 1 ? ' tie-break vinto' : ' tie-break vinti') });
+  const perfect = ids.filter(id => P[id].l === 0 && P[id].w >= 2);
+  if(perfect.length && perfect.length < ids.length) badges.push({ icon:'✅', title:'Percorso netto', ids:perfect, note:'tutte vittorie' });
+  const gains = (a.ratingChanges || []).filter(r => r.after - r.before > 0);
+  if(gains.length){
+    const mx = Math.max(...gains.map(r => r.after - r.before));
+    badges.push({ icon:'📈', title:'Miglior rialzo', ids:gains.filter(r => mx - (r.after - r.before) < 0.05).map(r => r.id), note:'+'+(Math.round(mx*10)/10).toFixed(1)+' di rating' });
+  }
+  return badges.map(b => Object.assign(b, { who: b.ids.map(nm).sort((x, y) => x.localeCompare(y)).join(', ') }));
+}
+function badgesHtml(a){
+  const b = tournamentBadges(a);
+  if(!b.length) return '';
+  return '<p class="section-label" style="margin-top:10px;">Riconoscimenti</p>' + b.map(x => recRow(x.icon+' '+x.title, x.who, '', x.note)).join('');
+}
+function badgesText(a){
+  const b = tournamentBadges(a);
+  return b.length ? '*Riconoscimenti*\n' + b.map(x => x.icon+' '+x.title+': '+x.who+' ('+x.note+')').join('\n') + '\n\n' : '';
+}
+
+// ---------- perché il rating è cambiato ----------
+// Spiega la variazione di un giocatore in un torneo archiviato (ai = posizione nell'archivio).
+// Elo: ogni partita muove di K x peso x (punteggio - attesa), quindi si elenca partita per partita e la somma torna.
+// Glicko-2: il rating si aggiorna sull'intero torneo, quindi si mostrano attese, punti ottenuti e incertezza (RD).
+function explainRating(id, ai, sys){
+  const a = archive[ai];
+  if(!a || !countsForRatings(a)) return null;
+  const list = archive.filter(countsForRatings), pi = list.indexOf(a);
+  const row = (a.ratingChanges || []).find(r => r.id === id);
+  if(!row) return null;
+  const names = archiveIdNames(a), nm = x => (roster[x] && roster[x].name) || names[x] || x;
+  const nHist = (a.history || []).reduce((n, h) => n + (h.matches || []).length, 0);
+  const avg = arr => arr.reduce((x, y) => x + y, 0) / arr.length;
+  const out = { sys: sys === 'glicko' ? 'glicko' : 'elo', matches:[] };
+  const flip = (e, inA) => ({ g: inA ? [e.s1, e.s2] : [e.s2, e.s1], tb: e.tb ? (inA ? e.tb : [e.tb[1], e.tb[0]]) : null });
+  if(out.sys === 'elo'){
+    computeEloStates(list.slice(0, pi+1), false, { onPeriod: (aa, entries, snap, idx) => {
+      if(idx !== pi) return;
+      const info = x => snap[x] || { elo:START_ELO, matches:0 };
+      entries.forEach((e, k) => {
+        const inA = e.idsA.includes(id), inB = e.idsB.includes(id);
+        if((!inA && !inB) || !e.idsA.length || !e.idsB.length) return;
+        const own = inA ? e.idsA : e.idsB, opp = inA ? e.idsB : e.idsA;
+        const exp = 1/(1+Math.pow(10, (avg(opp.map(x => info(x).elo)) - avg(own.map(x => info(x).elo)))/400));
+        const S0 = gameScore(e.s1, e.s2, e.tb), S = inA ? S0 : 1 - S0, kk = kFor(info(id).matches);
+        out.k = kk;
+        out.matches.push(Object.assign({ partner: own.filter(x => x !== id).map(nm).join(' & '), opp: opp.map(nm).join(' & '), exp, S, delta: kk*e.weight*(S-exp), weight:e.weight, extra: k >= nHist }, flip(e, inA)));
+      });
+    } });
+    out.before = row.before; out.after = row.after; out.frozen = !!(roster[id] && roster[id].frozen);
+    return out;
+  }
+  let k = 0;
+  computeGlicko(list.slice(0, pi+1), (A, B, gm, idx) => {
+    if(idx !== pi) return;
+    const myK = k++;
+    const inA = A.some(x => x.id === id), inB = B.some(x => x.id === id);
+    if(!inA && !inB) return;
+    const own = inA ? A : B, opp = inA ? B : A, pl = own.find(x => x.id === id);
+    const varOf = t => t.reduce((x, y) => x + y.phi*y.phi, 0);
+    const diff = avg(own.map(x => x.mu)) - avg(opp.map(x => x.mu));
+    const phiOpp = Math.sqrt(varOf(opp)/(opp.length*opp.length) + (varOf(own) - pl.phi*pl.phi)/(own.length*own.length));
+    const exp = g2E(pl.mu, pl.mu - diff, phiOpp);
+    const S0 = gameScore(gm.s1, gm.s2, gm.tb), S = inA ? S0 : 1 - S0;
+    out.matches.push(Object.assign({ partner: own.filter(x => x.id !== id).map(x => nm(x.id)).join(' & '), opp: opp.map(x => nm(x.id)).join(' & '), exp, S, weight:gm.weight, extra: myK >= nHist }, flip(gm, inA)));
+  });
+  const rowOf = l => computeGlicko(l).find(r => r.id === id);
+  const post = rowOf(list.slice(0, pi+1)), pre = pi > 0 ? rowOf(list.slice(0, pi)) : null;
+  if(!post) return null;
+  out.after = post.rating; out.rd1 = post.rd;
+  out.before = pre ? pre.rating : (roster[id] ? startState(id).elo : G2_BASE); out.rd0 = pre ? pre.rd : 350;
+  out.got = out.matches.reduce((n, m) => n + m.weight*m.S, 0);
+  out.expected = out.matches.reduce((n, m) => n + m.weight*m.exp, 0);
+  return out;
+}
+function explainBodyHtml(ex){
+  if(!ex) return '';
+  const pct = x => Math.round(x*100)+'%', sg = x => (x > 0 ? '+' : '') + (Math.round(x*10)/10).toFixed(1);
+  let h = '<div class="why-body">';
+  if(ex.sys === 'glicko'){
+    const diff = ex.got - ex.expected;
+    h += '<p>Nel Glicko-2 il rating si aggiorna sull\'intero torneo, non partita per partita.</p>';
+    h += '<p>Punti ottenuti: <b>'+ex.got.toFixed(1)+'</b> su <b>'+ex.expected.toFixed(1)+'</b> attesi &rarr; '+(diff > 0.05 ? 'più del previsto, il rating sale.' : (diff < -0.05 ? 'meno del previsto, il rating scende.' : 'in linea con le attese, il rating cambia poco.'))+'</p>';
+    h += '<p>Incertezza (RD): '+Math.round(ex.rd0)+' &rarr; '+Math.round(ex.rd1)+'. Più è alta, più il rating si muove; scende man mano che giochi.</p>';
+  } else {
+    h += '<p>Ogni partita muove il rating di K &times; (punteggio &minus; attesa), con K = '+ex.k+'. L\'attesa è la probabilità prevista dai rating delle due coppie; il punteggio tiene conto di quanto hai vinto o perso.</p>';
+    if(ex.frozen) h += '<p>Il tuo rating è congelato: resta un riferimento fisso e non cambia.</p>';
+  }
+  ex.matches.forEach(m => {
+    const tb = m.tb ? ' (tb '+m.tb[0]+'-'+m.tb[1]+')' : '';
+    const surprise = m.exp < 0.4 && m.S > 0.5 ? ' ⚡' : '';
+    h += '<div class="history-match"><span>'+(m.extra ? 'extra · ' : '')+'con '+esc(m.partner)+' vs '+esc(m.opp)+' · '+m.g[0]+'&ndash;'+m.g[1]+tb+surprise+'</span><span>attesa '+pct(m.exp)+(ex.sys === 'elo' ? ' &rarr; '+sg(m.delta) : '')+'</span></div>';
+  });
+  if(ex.sys === 'elo' && ex.matches.length){
+    const tot = ex.matches.reduce((n, m) => n + m.delta, 0);
+    h += '<p style="margin-top:6px;">Totale: <b>'+sg(tot)+'</b>'+(ex.matches.some(m => m.weight < 1) ? ' (le partite extra pesano meno)' : '')+'</p>';
+  }
+  return h + '</div>';
+}
+function whyDetails(id, ai, sys){
+  const b = explainBodyHtml(explainRating(id, ai, sys));
+  return b ? '<details class="why"><summary>Perché?</summary>'+b+'</details>' : '';
+}
+function profileWhyHtml(id){
+  const sys = rankMode === 'glicko' ? 'glicko' : 'elo', idxs = [];
+  for(let i = archive.length-1; i >= 0 && idxs.length < 5; i--){
+    if(countsForRatings(archive[i]) && (archive[i].ratingChanges || []).some(r => r.id === id)) idxs.push(i);
+  }
+  let h = '';
+  idxs.forEach(i => {
+    const ex = explainRating(id, i, sys); if(!ex) return;
+    const d = Math.round((ex.after - ex.before)*10)/10;
+    h += '<details class="why"><summary>'+itDate(dateKey(archive[i].date))+' · '+Math.round(ex.before)+' &rarr; '+Math.round(ex.after)+' ('+(d > 0 ? '+' : '')+d.toFixed(1)+')</summary>'+explainBodyHtml(ex)+'</details>';
+  });
+  return h ? '<p class="section-label" style="margin-top:14px;">Perché il rating è cambiato ('+(sys === 'glicko' ? 'Glicko-2' : 'Elo')+')</p>'+h : '';
 }
 
 // ---------- diagnostica: quanto i rating prevedono i risultati ----------
@@ -4060,6 +4213,7 @@ function formatArchiveResults(a){
     }
   }
 
+  text += badgesText(a);
   if(a.ratingChanges && a.ratingChanges.length){
     text += '*Variazioni Elo*\n' + eloChangesBlock(a.ratingChanges, 15) + '\n';
   }
@@ -4583,6 +4737,7 @@ function playerProfileView(id){
   if(nemeses.length) html += '<div class="val" style="color:var(--danger);">'+Math.round(nemeses[0].wr*100)+'%<span style="font-size:11px;font-weight:400;color:var(--ink-dim);"> tue V</span></div>';
   html += '</div>';
   html += recordsProfileHtml(id, eloHistory, glickoHistory);
+  html += profileWhyHtml(id);
   if(sideStats.Sx.m + sideStats.Dx.m > 0){
     const pc = o => o.m ? Math.round(o.w / o.m * 100) + '%' : '—';
     const f1 = x => (Math.round(x * 10) / 10).toFixed(1).replace('.', ',');
