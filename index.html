@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v47">
+<meta name="app-version" content="v49">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -323,12 +323,12 @@ function dateKey(d){
   return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');
 }
 const LS_CALC = 'padel-calc-v1';
-function cleanCalc(r){ return { from: (r && /^\d{4}-\d{2}-\d{2}$/.test(r.from)) ? r.from : '', base: (r && r.base === '1000') ? '1000' : 'set', recAll: !(r && r.recAll === false) }; }
+function cleanCalc(r){ return { from: (r && /^\d{4}-\d{2}-\d{2}$/.test(r.from)) ? r.from : '', base: (r && r.base === '1000') ? '1000' : 'set', recAll: !(r && r.recAll === false), teamRot: !!(r && r.teamRot), teamMin: (r && [1,2,3,5].includes(+r.teamMin)) ? +r.teamMin : 1 }; }
 let calc = (function(){
   try{ const raw = localStorage.getItem(LS_CALC); if(raw) return cleanCalc(JSON.parse(raw)); }catch(e){}
   // prima volta: i tornei già presenti restano gli unici a contare, così le classifiche non cambiano
   let min = ''; archive.forEach(a => { const k = dateKey(a.date); if(k && (!min || k < min)) min = k; });
-  return { from:min, base:'set', recAll:true };
+  return { from:min, base:'set', recAll:true, teamRot:false, teamMin:1 };
 })();
 function saveCalc(){ try{ localStorage.setItem(LS_CALC, JSON.stringify(calc)); }catch(e){} }
 saveCalc();
@@ -2318,6 +2318,10 @@ function dataSection(){
 }
 function applyCalc(){ saveCalc(); recomputeRatings(); ratingSummary = null; saveRoster(); saveArchive(); render(); }
 function setCalcFrom(v){ calc.from = cleanCalc({ from:v }).from; applyCalc(); }
+let teamShown = 25;   // quante squadre mostrare nella classifica (a pagine di 25)
+function setTeamRot(on){ calc.teamRot = !!on; teamShown = 25; saveCalc(); render(); }
+function setTeamMin(v){ calc.teamMin = [1,2,3,5].includes(+v) ? +v : 1; teamShown = 25; saveCalc(); render(); }
+function moreTeams(){ teamShown += 25; const y = window.scrollY; render(); window.scrollTo(0, y); }
 function setRecAll(on){ calc.recAll = !!on; saveCalc(); render(); }
 function setCalcBase(v){ calc.base = (v === '1000') ? '1000' : 'set'; applyCalc(); }
 
@@ -2339,7 +2343,7 @@ function pairStatsFromMatches(matches, teamIdx){
   });
   return Object.values(res);
 }
-function teamStats(list, includeLive){
+function teamStats(list, includeLive, withRot){
   list = list || archive;
   if(includeLive === undefined) includeLive = true;
   const map = {};
@@ -2358,8 +2362,16 @@ function teamStats(list, includeLive){
     map[key].setsLost += setsLost;
   }
   list.forEach(a => {
-    if(a.mode && a.mode !== 'fixed') return;   // Americano/Messicano non hanno squadre fisse: non entrano nella classifica squadre
     if(!countsForRatings(a)) return;            // torneo escluso o prima della data di inizio
+    if(a.mode && a.mode !== 'fixed'){
+      // Americano/Messicano non hanno squadre fisse: le coppie entrano solo se richiesto (spunta nella classifica squadre)
+      if(!withRot) return;
+      (a.history||[]).forEach(h => (h.matches||[]).forEach(m => {
+        const b = matchBaseIds(a, m), r = matchWinner(m.s1, m.s2, m.tb);
+        [[b.a, m.s1, m.s2, r === 1], [b.b, m.s2, m.s1, r === 0]].forEach(([ids, gw, gl, won]) => { if(ids && ids.length === 2) addToMap(null, null, ids, won ? 1 : 0, gw, gl, 1); });
+      }));
+      return;
+    }
     (a.teams||[]).forEach((tm, ti) => {
       if(tm.subs && tm.subs.length){
         const all = []; (a.history||[]).forEach(h => h.matches.forEach(m => all.push(m)));
@@ -2399,19 +2411,23 @@ function computeRanks(list, keyFn){
 function rankLabel(r){ return (r.tied ? '=' : '') + r.rank; }
 
 function teamRankingView(){
-  const list = teamStats().filter(x=>x.matches>0).sort((a,b)=>{
+  const minM = calc.teamMin || 1;
+  const list = teamStats(undefined, undefined, calc.teamRot).filter(x=>x.matches>=minM).sort((a,b)=>{
     const wa = a.wins/a.matches, wb = b.wins/b.matches;
     return wb-wa || (b.setsWon-b.setsLost)-(a.setsWon-a.setsLost) || a.name.localeCompare(b.name);
   });
   let html = '<section><p class="section-label">Classifica squadre</p>';
+  html += '<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin:0 0 10px;"><input type="checkbox" '+(calc.teamRot ? 'checked' : '')+' onchange="setTeamRot(this.checked)" style="width:18px;height:18px;" /> Includi le coppie di Americano e Messicano</label>';
+  html += '<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin:0 0 10px;">Minimo partite insieme <select onchange="setTeamMin(this.value)">'+[1,2,3,5].map(n => '<option value="'+n+'"'+(n === minM ? ' selected' : '')+'>'+(n === 1 ? '1 (tutte)' : n)+'</option>').join('')+'</select></label>';
   html += '<p class="hint">Aggrega tutte le volte in cui una stessa coppia ha giocato insieme, tornei di prova esclusi. Le frecce mostrano il cambio di posizione dovuto all\'ultimo torneo archiviato.</p>';
   if(list.length === 0){
-    html += '<p class="roster-empty">Nessuna squadra con partite giocate ancora.</p>';
+    html += '<p class="roster-empty">'+(minM > 1 ? 'Nessuna squadra con almeno '+minM+' partite insieme.' : 'Nessuna squadra con partite giocate ancora.')+'</p>';
   } else {
     html += '<div class="rank-list">';
     const ranks = computeRanks(list, tm => Math.round((tm.wins/tm.matches)*100));
     const mvTeams = movement(positionsTeams);
-    list.forEach((tm,i) => {
+    const shown = Math.min(list.length, teamShown);
+    list.slice(0, shown).forEach((tm,i) => {
       const wr = Math.round((tm.wins/tm.matches)*100);
       const r = ranks[i];
       html += '<div class="rank-row'+(r.rank===1?' top1':'')+'"><span class="rank-num'+(r.tied?' tied':'')+'">'+rankLabel(r)+'</span>';
@@ -2421,6 +2437,8 @@ function teamRankingView(){
       html += '<span class="rank-meta">'+tm.matches+' partite</span></div>';
     });
     html += '</div>';
+    html += '<p class="hint" style="margin-top:8px;">Mostrate '+shown+' di '+list.length+(list.length === 1 ? ' squadra' : ' squadre')+(minM > 1 ? ' (almeno '+minM+' partite insieme)' : '')+'.</p>';
+    if(shown < list.length) html += '<button class="ghost" style="margin-top:6px;" onclick="moreTeams()">Mostra altre '+Math.min(25, list.length - shown)+'</button>';
   }
   html += '</section>';
   return html;
@@ -3701,7 +3719,7 @@ function positionsGlicko(list){
   return m;
 }
 function positionsTeams(list){
-  const rows = teamStats(list, false).filter(x=>x.matches>0).sort((a,b)=>{
+  const rows = teamStats(list, false, calc.teamRot).filter(x=>x.matches>=(calc.teamMin||1)).sort((a,b)=>{
     const wa = a.wins/a.matches, wb = b.wins/b.matches;
     return wb-wa || (b.setsWon-b.setsLost)-(a.setsWon-a.setsLost) || a.name.localeCompare(b.name);
   });
