@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v51">
+<meta name="app-version" content="v52">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -252,7 +252,7 @@ function setRankMode(m){ rankMode = m; try{ localStorage.setItem(LS_RANK_MODE, m
 
 function normalizeTournament(obj){
   obj = sanitizeDeep(obj);
-  const base = { phase:'setup', courts:3, maxRounds:3, teams:[], round:0, played:[], currentMatches:[], history:[], restCounts:{}, courtCounts:{}, sideCounts:{}, lastMeetingCourt:{}, lastMeetingSide:{}, unofficial:false, useClassicSchedule:false, classicSchedule:null, restingThisRound:[], extras:[] };
+  const base = { phase:'setup', venue:'', courts:3, maxRounds:3, teams:[], round:0, played:[], currentMatches:[], history:[], restCounts:{}, courtCounts:{}, sideCounts:{}, lastMeetingCourt:{}, lastMeetingSide:{}, unofficial:false, useClassicSchedule:false, classicSchedule:null, restingThisRound:[], extras:[] };
   const merged = Object.assign({}, base, obj||{});
   merged.teams.forEach(tm => {
     if(tm.wins===undefined) tm.wins = 0;
@@ -937,6 +937,19 @@ function assignSlot(teamId, field, newName){
 }
 
 function updateCourts(val){ t.courts = parseInt(val)||0; saveTournament(); }
+// Luogo / centro sportivo: testo libero (max 60 caratteri), con suggerimenti dai luoghi già usati.
+function cleanVenue(v){ return cleanText(String(v || '')).replace(/\s+/g, ' ').trim().slice(0, 60); }
+function updateVenue(val){ t.venue = cleanVenue(val); saveTournament(); }
+function knownVenues(){
+  const cnt = {};
+  archive.forEach(a => { if(a.venue) cnt[a.venue] = (cnt[a.venue] || 0) + 1; });
+  if(t && t.venue) cnt[t.venue] = (cnt[t.venue] || 0) + 1;
+  return Object.keys(cnt).sort((x, y) => cnt[y] - cnt[x] || x.localeCompare(y));
+}
+function venueDatalistHtml(){ return '<datalist id="venueList">'+knownVenues().map(v => '<option value="'+esc(v)+'"></option>').join('')+'</datalist>'; }
+function venueFieldHtml(){
+  return '<div style="margin-bottom:12px;"><label class="field">Luogo / centro sportivo</label><input type="text" id="venueInput" maxlength="60" list="venueList" placeholder="es. Padel Club Verona" autocomplete="off" value="'+esc(t.venue||'')+'" oninput="updateVenue(this.value)" />'+venueDatalistHtml()+'</div>';
+}
 function updateRounds(val){ t.maxRounds = parseInt(val)||0; saveTournament(); }
 
 function startTournament(){
@@ -957,8 +970,8 @@ function startTournament(){
   teams.forEach((tm,i) => { tm.id = i; delete tm._str; });
   saveRoster();
 
-  const courts = t.courts, maxRounds = t.maxRounds, unofficial = !!t.unofficial;
-  t = { phase:'playing', courts, maxRounds, unofficial, teams, round:0, played:[], currentMatches:[], history:[], restCounts:{}, courtCounts:{}, sideCounts:{}, extras:[] };
+  const courts = t.courts, maxRounds = t.maxRounds, unofficial = !!t.unofficial, venue = cleanVenue(t.venue);
+  t = { phase:'playing', venue, courts, maxRounds, unofficial, teams, round:0, played:[], currentMatches:[], history:[], restCounts:{}, courtCounts:{}, sideCounts:{}, extras:[] };
   extraDraft = null;
   roundDraft = {};
   pairEdit = null;
@@ -1543,6 +1556,7 @@ function finishTournament(){
       extras: (t.extras || []).map(x => ({ ...x, idsA: x.teamA.map(resolveId), idsB: x.teamB.map(resolveId) })),
       ratingChanges: []
     };
+    if(cleanVenue(t.venue)) entry.venue = cleanVenue(t.venue);
     archive.push(entry); sortArchive();
     while(archive.length > ARCHIVE_MAX){ foldArchiveEntryIntoBase(archive.shift()); }
     // I rating non si aggiornano a mano: si ricalcolano dall'archivio (che ora include questo torneo).
@@ -1551,7 +1565,7 @@ function finishTournament(){
     saveRoster();
     saveArchive();
   }
-  t = { phase:'setup', courts:t.courts, maxRounds:t.maxRounds, teams:[], round:0, played:[], currentMatches:[], history:[], restCounts:{}, extras:[] };
+  t = { phase:'setup', venue:t.venue||'', courts:t.courts, maxRounds:t.maxRounds, teams:[], round:0, played:[], currentMatches:[], history:[], restCounts:{}, extras:[] };
   extraDraft = null;
   roundDraft = {};
   pairEdit = null;
@@ -1563,8 +1577,8 @@ function finishTournament(){
 
 function resetAll(){
   if(!resetArmed){ resetArmed = true; render(); return; }
-  const courts = t.courts, maxRounds = t.maxRounds;
-  t = { phase:'setup', courts, maxRounds, teams:[], round:0, played:[], currentMatches:[], history:[], restCounts:{}, extras:[] };
+  const courts = t.courts, maxRounds = t.maxRounds, venue = t.venue || '';
+  t = { phase:'setup', venue, courts, maxRounds, teams:[], round:0, played:[], currentMatches:[], history:[], restCounts:{}, extras:[] };
   extraDraft = null;
   roundDraft = {};
   pairEdit = null;
@@ -1735,10 +1749,10 @@ function exportSheets(){
   ] });
   sheets.push({ name:'Giocatori', freeze:true, filter:true, widths:[24,16,12,12,8],
     rows:[['Nome','Rating iniziale','Congelato','Nascosto','Lato']].concat(players.map(p => [p.name, p.elo0, yn(p.frozen), yn(p.hidden), p.side || ''])) });
-  sheets.push({ name:'Tornei', freeze:true, filter:true, widths:[14,16,8,14,10],
-    rows:[['Torneo','Modalità','Campi','Turni giocati','Escluso']].concat(archive.map((a,i) => {
+  sheets.push({ name:'Tornei', freeze:true, filter:true, widths:[14,16,8,14,10,28],
+    rows:[['Torneo','Modalità','Campi','Turni giocati','Escluso','Luogo']].concat(archive.map((a,i) => {
       const md = a.mode || 'fixed';
-      return [keys[i], md === 'fixed' ? 'Squadre fisse' : md.charAt(0).toUpperCase()+md.slice(1), a.courts || '', a.roundsPlayed || 0, yn(a.excluded)];
+      return [keys[i], md === 'fixed' ? 'Squadre fisse' : md.charAt(0).toUpperCase()+md.slice(1), a.courts || '', a.roundsPlayed || 0, yn(a.excluded), a.venue || ''];
     })) });
   const partite = [['Torneo','Turno','A Sx','A Dx','B Sx','B Dx','Game A','Game B','TB A','TB B']];
   const extra = [['Torneo','A Sx','A Dx','B Sx','B Dx','Game A','Game B','TB A','TB B','Peso']];
@@ -1895,7 +1909,7 @@ function buildImportPlan(sheets, fileName){
 
   // Tornei (impostazioni)
   const meta = {};
-  (table('tornei', 'Tornei', ['Torneo'], ['Modalità','Campi','Escluso']) || []).forEach(r => {
+  (table('tornei', 'Tornei', ['Torneo'], ['Modalità','Campi','Escluso','Luogo']) || []).forEach(r => {
     const k = parseTournamentKey(r['Torneo']);
     if(!k){ err('Tornei', r._r, 'data del torneo non valida ('+r['Torneo']+')'); return; }
     const md = normName(r['Modalità']);
@@ -1903,7 +1917,7 @@ function buildImportPlan(sheets, fileName){
     if(md === '' || /^(squadre fisse|fisse|fixed)$/.test(md)) mode = 'fixed'; else if(/^americano/.test(md)) mode = 'americano'; else if(/^messicano/.test(md)) mode = 'messicano';
     else { err('Tornei', r._r, 'modalità non riconosciuta ('+r['Modalità']+')'); return; }
     const courts = xlInt(r['Campi']);
-    meta[k.key] = { mode, courts: (courts && courts > 0) ? courts : 0, excluded: xlYes(r['Escluso']), hasExcluded: r['Escluso'] !== '' };
+    meta[k.key] = { mode, courts: (courts && courts > 0) ? courts : 0, excluded: xlYes(r['Escluso']), hasExcluded: r['Escluso'] !== '', venue: cleanVenue(r['Luogo']) };
   });
 
   // Partite ed extra
@@ -1955,9 +1969,9 @@ function buildImportPlan(sheets, fileName){
   // Confronto con l'archivio
   const keys = tournamentKeys();
   Object.keys(specs).sort().forEach(k => {
-    const sp = specs[k], mt = meta[k] || { mode:'fixed', courts:0, excluded:false, hasExcluded:false };
+    const sp = specs[k], mt = meta[k] || { mode:'fixed', courts:0, excluded:false, hasExcluded:false, venue:'' };
     const rounds = Object.keys(sp.rounds).map(Number).sort((a,b) => a-b).map(n => ({ round:n, matches:sp.rounds[n] }));
-    const op = { key:k, date:sp.date, mode:mt.mode, courts: mt.courts || Math.max(1, ...rounds.map(h => h.matches.length)), excluded:mt.excluded, rounds, extras:sp.extras, nM: rounds.reduce((n,h) => n+h.matches.length, 0), nE: sp.extras.length };
+    const op = { key:k, date:sp.date, mode:mt.mode, courts: mt.courts || Math.max(1, ...rounds.map(h => h.matches.length)), excluded:mt.excluded, hasExcluded:mt.hasExcluded, venue:mt.venue, rounds, extras:sp.extras, nM: rounds.reduce((n,h) => n+h.matches.length, 0), nE: sp.extras.length };
     const idx = keys.indexOf(k);
     if(idx < 0){ op.type = 'add'; }
     else {
@@ -1967,7 +1981,7 @@ function buildImportPlan(sheets, fileName){
       const same = JSON.stringify(sigP.slice().sort()) === JSON.stringify(cur.partite.map(rowSig).sort()) && JSON.stringify(sigE.slice().sort()) === JSON.stringify(cur.extra.map(rowSig).sort());
       op.idx = idx;
       if(!same) op.type = 'update';
-      else if(mt.hasExcluded && !!archive[idx].excluded !== mt.excluded) op.type = 'flag';
+      else if((mt.hasExcluded && !!archive[idx].excluded !== mt.excluded) || (mt.venue && mt.venue !== (archive[idx].venue || ''))) op.type = 'flag';
       else op.type = 'same';
     }
     plan.ops.push(op);
@@ -2066,6 +2080,7 @@ function entryFromSpec(op, old){
   const e = Object.assign({}, old || {});
   e.date = old ? old.date : new Date(+op.date.slice(0,4), +op.date.slice(5,7)-1, +op.date.slice(8,10), 12, 0, 0).toISOString();
   if(op.excluded) e.excluded = true; else delete e.excluded;
+  if(op.venue) e.venue = op.venue;
   delete e.teams; delete e.players; delete e.mode;
   e.courts = op.courts;
   e.roundsPlayed = Math.max(0, ...op.rounds.map(h => h.round)); e.maxRounds = e.roundsPlayed;
@@ -2133,7 +2148,7 @@ function applyImportPlan(){
   plan.ops.forEach(op => {
     if(op.type === 'add') fresh.push(entryFromSpec(op, null));
     else if(op.type === 'update') archive[op.idx] = entryFromSpec(op, archive[op.idx]);
-    else if(op.type === 'flag'){ if(op.excluded) archive[op.idx].excluded = true; else delete archive[op.idx].excluded; }
+    else if(op.type === 'flag'){ if(op.hasExcluded){ if(op.excluded) archive[op.idx].excluded = true; else delete archive[op.idx].excluded; } if(op.venue) archive[op.idx].venue = op.venue; }
   });
   fresh.forEach(e => archive.push(e));
   sortArchive();
@@ -2213,7 +2228,7 @@ function importPreviewHtml(){
     h += '<ul style="margin:0 0 8px;padding-left:18px;font-size:13.5px;">';
     h += '<li>Tornei da aggiungere: <b>'+of('add').length+'</b>'+(of('add').length ? ' ('+esc(list(of('add').map(o => o.key), 6))+')' : '')+'</li>';
     h += '<li>Tornei da aggiornare: <b>'+of('update').length+'</b>'+(of('update').length ? ' ('+esc(list(of('update').map(o => o.key), 6))+')' : '')+'</li>';
-    if(of('flag').length) h += '<li>Tornei con solo l\'opzione "escluso" cambiata: <b>'+of('flag').length+'</b></li>';
+    if(of('flag').length) h += '<li>Tornei con solo "escluso" o luogo cambiati: <b>'+of('flag').length+'</b></li>';
     h += '<li>Tornei invariati: <b>'+of('same').length+'</b></li>';
     h += '<li>Partite lette: <b>'+p.nMatches+'</b> · extra: <b>'+p.nExtras+'</b></li>';
     if(p.newPlayers.length) h += '<li>Nuovi giocatori: <b>'+esc(list(p.newPlayers, 10))+'</b></li>';
@@ -2453,15 +2468,17 @@ let archiveFilterYear = '';
 let archiveFilterMonth = '';
 let archiveFilterMode = '';
 let archiveFilterPlayer = '';
+let archiveFilterVenue = '';
 let archiveSearchText = '';
 let archivePageSize = 20;
 let archiveOpenMonths = null;   // Set delle chiavi mese ('YYYY-MM') espanse; null = non ancora inizializzato (si apre solo il mese più recente)
 function setArchiveFilterYear(v){ archiveFilterYear = v; archivePageSize = 20; render(); }
 function setArchiveFilterMonth(v){ archiveFilterMonth = v; archivePageSize = 20; render(); }
 function setArchiveFilterMode(v){ archiveFilterMode = v; archivePageSize = 20; render(); }
+function setArchiveFilterVenue(v){ archiveFilterVenue = v; archivePageSize = 20; render(); }
 function setArchiveFilterPlayer(v){ archiveFilterPlayer = v; archivePageSize = 20; render(); }
 function setArchiveSearchText(v){ archiveSearchText = v; archivePageSize = 20; render(); }
-function clearArchiveFilters(){ archiveFilterYear=''; archiveFilterMonth=''; archiveFilterMode=''; archiveFilterPlayer=''; archiveSearchText=''; archivePageSize = 20; render(); }
+function clearArchiveFilters(){ archiveFilterYear=''; archiveFilterMonth=''; archiveFilterMode=''; archiveFilterPlayer=''; archiveFilterVenue=''; archiveSearchText=''; archivePageSize = 20; render(); }
 function showMoreArchive(){ archivePageSize += 20; render(); }
 function toggleArchiveMonth(key){
   if(!archiveOpenMonths) archiveOpenMonths = new Set();
@@ -2605,6 +2622,8 @@ function saveArchiveEdit(i){
     if(!nd || dateKey(nd) !== dEl.value){ err.textContent = 'Data non valida.'; return; }
     newDate = nd.toISOString();
   }
+  const vEl = document.getElementById('archVenue');
+  if(vEl){ const nv = cleanVenue(vEl.value); updates.push(() => { if(nv) a.venue = nv; else delete a.venue; }); }
   updates.forEach(fn => fn());
   if(newDate){ a.date = newDate; sortArchive(); expandedArchiveIdx = null; }
   if(moves.length) archiveApplyMoves(a, moves);
@@ -3128,7 +3147,7 @@ function archiveDetailBody(a, i){
     html += '<div class="banner warn" style="margin:4px 0 10px;"><p style="margin:0 0 10px;">Eliminare '+esc(archiveRemoveConfirm.desc)+'?</p><div style="display:flex;gap:8px;"><button class="primary" style="background:var(--danger);color:#fff;" onclick="confirmArchiveRemove()">Sì, elimina</button><button class="ghost" style="margin-top:0;" onclick="cancelArchiveRemoveConfirm()">Annulla</button></div></div>';
   }
   const editing = (editingArchiveIdx === i);
-  if(editing){ html += '<label style="display:flex;align-items:center;gap:8px;margin:4px 0 10px;font-size:13.5px;">Data del torneo <input type="date" id="archDate" value="'+esc(dateKey(a.date))+'" /></label>'; }
+  if(editing){ html += '<label style="display:flex;align-items:center;gap:8px;margin:4px 0 10px;font-size:13.5px;">Data del torneo <input type="date" id="archDate" value="'+esc(dateKey(a.date))+'" /></label>'; html += '<label style="display:block;margin:4px 0 10px;font-size:13.5px;">Luogo / centro sportivo<input type="text" id="archVenue" maxlength="60" list="venueList" placeholder="nessun luogo" autocomplete="off" value="'+esc(a.venue||'')+'" style="width:100%;margin-top:4px;" /></label>'+venueDatalistHtml(); }
   const scoreInputs = (idA, idB, v1, v2, tbIdA, tbIdB, tbRowId, tb) => {
     let out = '<div class="edit-match-score"><input id="'+idA+'" type="number" min="0" inputmode="numeric" value="'+v1+'" oninput="toggleTbRow('+jsArg(idA)+','+jsArg(idB)+','+jsArg(tbRowId)+')" /><span class="dash">&ndash;</span><input id="'+idB+'" type="number" min="0" inputmode="numeric" value="'+v2+'" oninput="toggleTbRow('+jsArg(idA)+','+jsArg(idB)+','+jsArg(tbRowId)+')" /></div>';
     out += '<div class="tb-row" id="'+tbRowId+'" style="'+(isTiedSix(v1,v2)?'':'display:none;')+'"><span class="tb-label">Tie-break</span><input class="score-input tb-input" id="'+tbIdA+'" type="number" min="0" inputmode="numeric" value="'+(tb?tb[0]:'')+'" /><span class="dash">&ndash;</span><input class="score-input tb-input" id="'+tbIdB+'" type="number" min="0" inputmode="numeric" value="'+(tb?tb[1]:'')+'" /></div>';
@@ -3222,6 +3241,7 @@ function archiveDetailBody(a, i){
   return html;
 }
 
+const venueTag = a => a.venue ? ' · 📍 '+esc(a.venue) : '';
 function archiveFixedCard(a, i){
   const dateStr = new Date(a.date).toLocaleDateString('it-IT', {day:'2-digit', month:'2-digit', year:'numeric'});
   function archBuchholz(teamIdx){
@@ -3235,7 +3255,7 @@ function archiveFixedCard(a, i){
   const sorted = a.teams.map((tm,idx)=>({...tm, _idx:idx})).sort((x,y)=> y.wins-x.wins || (y.setsWon-y.setsLost)-(x.setsWon-x.setsLost) || archBuchholz(y._idx)-archBuchholz(x._idx));
   const ranks = computeRanks(sorted, tm => tm.wins+'-'+(tm.setsWon-tm.setsLost));
   let html = '<div class="team-card"><div class="team-card-head">';
-  html += '<p class="section-label">'+dateStr+' · '+a.teams.length+' squadre · '+a.roundsPlayed+' turni'+excTag(a)+'</p>';
+  html += '<p class="section-label">'+dateStr+venueTag(a)+' · '+a.teams.length+' squadre · '+a.roundsPlayed+' turni'+excTag(a)+'</p>';
   html += '<button class="small" onclick="toggleArchiveExpand('+i+')">'+(expandedArchiveIdx===i ? 'Chiudi' : 'Dettagli')+'</button>';
   html += '</div>';
   sorted.forEach((tm,pos) => {
@@ -3257,7 +3277,7 @@ function archiveRotatingCard(a, i){
   const standings = archivePlayerStandings(a);
   const ranks = computeRanks(standings, r => r.wins+'-'+(r.gW-r.gL));
   let html = '<div class="team-card"><div class="team-card-head">';
-  html += '<p class="section-label">'+dateStr+' · '+(a.players ? a.players.length : standings.length)+' giocatori · '+a.roundsPlayed+' turni · '+label+excTag(a)+'</p>';
+  html += '<p class="section-label">'+dateStr+venueTag(a)+' · '+(a.players ? a.players.length : standings.length)+' giocatori · '+a.roundsPlayed+' turni · '+label+excTag(a)+'</p>';
   html += '<button class="small" onclick="toggleArchiveExpand('+i+')">'+(expandedArchiveIdx===i ? 'Chiudi' : 'Dettagli')+'</button>';
   html += '</div>';
   standings.forEach((r,pos) => {
@@ -3289,8 +3309,12 @@ function archiveView(){
   html += '<select onchange="setArchiveFilterMode(this.value)"><option value="">Tutte le modalità</option><option value="fixed"'+(archiveFilterMode==='fixed'?' selected':'')+'>Squadre fisse</option><option value="americano"'+(archiveFilterMode==='americano'?' selected':'')+'>Americano</option><option value="messicano"'+(archiveFilterMode==='messicano'?' selected':'')+'>Messicano</option></select>';
   html += '<select onchange="setArchiveFilterPlayer(this.value)"><option value="">Tutti i giocatori</option>'+playerNames.map(n => '<option value="'+esc(n)+'"'+(archiveFilterPlayer===n?' selected':'')+'>'+esc(n)+'</option>').join('')+'</select>';
   html += '</div>';
-  html += '<input type="text" placeholder="Cerca per nome partecipante…" value="'+esc(archiveSearchText)+'" oninput="setArchiveSearchText(this.value)" style="margin-top:8px;width:100%;" />';
-  if(archiveFilterYear || archiveFilterMonth!=='' || archiveFilterMode || archiveFilterPlayer || archiveSearchText){
+  const venueOpts = Array.from(new Set(archive.map(a => a.venue).filter(Boolean))).sort((x,y)=>x.localeCompare(y));
+  if(venueOpts.length){
+    html += '<select onchange="setArchiveFilterVenue(this.value)" style="margin-top:8px;width:100%;"><option value="">Tutti i luoghi</option>'+venueOpts.map(v => '<option value="'+esc(v)+'"'+(archiveFilterVenue===v?' selected':'')+'>'+esc(v)+'</option>').join('')+'</select>';
+  }
+  html += '<input type="text" placeholder="Cerca per nome o luogo…" value="'+esc(archiveSearchText)+'" oninput="setArchiveSearchText(this.value)" style="margin-top:8px;width:100%;" />';
+  if(archiveFilterYear || archiveFilterMonth!=='' || archiveFilterMode || archiveFilterPlayer || archiveFilterVenue || archiveSearchText){
     html += '<button class="ghost" style="margin-top:8px;" onclick="clearArchiveFilters()">Azzera filtri</button>';
   }
 
@@ -3306,7 +3330,8 @@ function archiveView(){
     if(archiveFilterMode && modeKey !== archiveFilterMode) return false;
     const names = archiveParticipantNames(e.a);
     if(archiveFilterPlayer && !names.includes(archiveFilterPlayer)) return false;
-    if(q && !names.some(n => n.toLowerCase().includes(q))) return false;
+    if(archiveFilterVenue && (e.a.venue || '') !== archiveFilterVenue) return false;
+    if(q && !names.some(n => n.toLowerCase().includes(q)) && !(e.a.venue || '').toLowerCase().includes(q)) return false;
     return true;
   }).sort((x,y)=> y.d - x.d);
 
@@ -3515,8 +3540,8 @@ function startRotatingTournament(){
   if(players.length < 4){ document.getElementById('setupErr').textContent = 'Servono almeno 4 giocatori.'; return; }
   document.getElementById('setupErr').textContent = '';
 
-  const mode = pendingMode, courts = t.courts, maxRounds = t.maxRounds, unofficial = !!t.unofficial;
-  t = { phase:'playing', mode, courts, maxRounds, unofficial, players, round:0, currentMatches:[], history:[], restCounts:{}, extras:[] };
+  const mode = pendingMode, courts = t.courts, maxRounds = t.maxRounds, unofficial = !!t.unofficial, venue = cleanVenue(t.venue);
+  t = { phase:'playing', mode, venue, courts, maxRounds, unofficial, players, round:0, currentMatches:[], history:[], restCounts:{}, extras:[] };
   players.forEach(id => { t.restCounts[id] = 0; });
   roundDraft = {};
   pairEdit = null;
@@ -4120,6 +4145,7 @@ function restingNamesForShare(){
 function shareRoundWhatsApp(){
   if(!t.currentMatches || !t.currentMatches.length) return;
   let text = '🎾 *TORNEO PADEL – TURNO ' + t.round + '*\n';
+  if(t.venue) text += '📍 ' + t.venue + '\n';
   t.currentMatches.forEach((m, idx) => {
     const n = matchNamesForShare(m);
     text += '\n*Campo ' + (idx + 1) + '*\n' + n.a + '\n🆚 ' + n.b + '\n';
@@ -4144,6 +4170,7 @@ function formatArchiveResults(a){
   const when = fmtDateIT(a.date);
   let text = '🎾 *RISULTATI TORNEO*\n';
   if(when) text += '📅 ' + when + '\n';
+  if(a.venue) text += '📍 ' + a.venue + '\n';
   text += '🏷 ' + mode;
   if(a.unofficial) text += ' · prova';
   if(a.excluded) text += ' · escluso dal rating'; else if(!countsForRatings(a)) text += ' · prima della data di inizio calcoli';
@@ -4234,6 +4261,7 @@ function shareLiveResults(){
   shareText(formatArchiveResults({
     date: new Date().toISOString(),
     mode: t.mode || 'fixed',
+    venue: t.venue || '',
     unofficial: !!t.unofficial,
     history: t.history,
     extras: t.extras || [],
@@ -4476,7 +4504,7 @@ function renderKiosk(){
   html += '<button class="small" onclick="adjustTimer(-1)">-1m</button>';
   html += '<button class="small" onclick="adjustTimer(5)">+5m</button>';
   html += '<button class="small danger" onclick="closeKiosk()">Chiudi</button></div></div>';
-  html += '<p class="section-label" style="margin-bottom:12px;">Turno '+t.round+(t.maxRounds ? ' di '+t.maxRounds : '')+' · '+(over ? 'tempo scaduto!' : (kioskTimerInterval ? 'tocca il timer per mettere in pausa' : 'tocca il timer per avviare'))+'</p>';
+  html += '<p class="section-label" style="margin-bottom:12px;">'+(t.venue ? '📍 '+esc(t.venue)+' · ' : '')+'Turno '+t.round+(t.maxRounds ? ' di '+t.maxRounds : '')+' · '+(over ? 'tempo scaduto!' : (kioskTimerInterval ? 'tocca il timer per mettere in pausa' : 'tocca il timer per avviare'))+'</p>';
   (t.currentMatches || []).forEach((m, idx) => {
     const n = matchNamesForShare(m);
     html += '<div class="kiosk-match"><p class="kiosk-court">Campo '+(idx+1)+'</p>';
@@ -4894,7 +4922,7 @@ function renderMain(){
     return;
   }
   document.getElementById('title').textContent = showDiag ? 'Diagnostica rating' : showRanking ? 'Classifica giocatori' : (showTeamRanking ? 'Classifica squadre' : (showArchive ? 'Tornei passati' : (t.phase==='setup' ? 'Nuovo torneo' : 'Torneo in corso')));
-  document.getElementById('foot').textContent = (!showRanking && !showTeamRanking && !showArchive && t.phase==='playing') ? ((t.mode && t.mode!=='fixed' ? t.players.length+' giocatori · '+({americano:'Americano',messicano:'Messicano'}[t.mode]) : t.teams.length+' squadre')+' · '+t.courts+' campi · '+t.maxRounds+' turni') : '';
+  document.getElementById('foot').textContent = (!showRanking && !showTeamRanking && !showArchive && t.phase==='playing') ? ((t.mode && t.mode!=='fixed' ? t.players.length+' giocatori · '+({americano:'Americano',messicano:'Messicano'}[t.mode]) : t.teams.length+' squadre')+' · '+t.courts+' campi · '+t.maxRounds+' turni'+(t.venue ? ' · 📍 '+t.venue : '')) : '';
 
   let html = '<div class="btn-pair" style="margin-bottom:1.25rem;">';
   html += '<button class="ghost'+(showRanking ? ' back-active' : '')+'" onclick="showDiag=false;showRanking=!showRanking;showTeamRanking=false;showArchive=false;render();">'+(showRanking ? 'Torna al torneo' : 'Classifica giocatori')+'</button>';
@@ -4951,7 +4979,7 @@ function renderMain(){
       if(draftTeams.length === 0){ html += '<p class="err" id="setupErr"></p>'; }
       html += '</section>';
     } else {
-      html += '<section><p class="section-label">Serata</p><div class="row2">';
+      html += '<section><p class="section-label">Serata</p>'+venueFieldHtml()+'<div class="row2">';
       html += '<div><label class="field">Campi disponibili</label><input type="number" id="courtsInput" min="1" value="'+(t.courts||3)+'" oninput="updateCourts(this.value)" /></div>';
       html += '<div><label class="field">Turni da giocare</label><input type="number" id="roundsInput" min="1" value="'+(t.maxRounds||3)+'" oninput="updateRounds(this.value)" /></div>';
       html += '</div>';
@@ -5007,7 +5035,7 @@ function renderMain(){
       html += '<button class="ghost" onclick="addEmptyTeam()">Aggiungi un\'altra squadra</button>';
       html += '</section>';
 
-      html += '<section><p class="section-label">Serata</p><div class="row2">';
+      html += '<section><p class="section-label">Serata</p>'+venueFieldHtml()+'<div class="row2">';
       html += '<div><label class="field">Campi disponibili</label><input type="number" id="courtsInput" min="1" value="'+(t.courts||3)+'" oninput="updateCourts(this.value)" /></div>';
       html += '<div><label class="field">Turni da giocare</label><input type="number" id="roundsInput" min="1" value="'+(t.maxRounds||3)+'" oninput="updateRounds(this.value)" /></div>';
       html += '</div>';
