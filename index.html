@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v54">
+<meta name="app-version" content="v55">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -356,12 +356,12 @@ function dateKey(d){
   return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');
 }
 const LS_CALC = 'padel-calc-v1';
-function cleanCalc(r){ return { from: (r && /^\d{4}-\d{2}-\d{2}$/.test(r.from)) ? r.from : '', base: (r && r.base === '1000') ? '1000' : 'set', recAll: !(r && r.recAll === false), teamRot: !!(r && r.teamRot), teamMin: (r && [1,2,3,5].includes(+r.teamMin)) ? +r.teamMin : 1, playerMin: (r && [1,3,5,10].includes(+r.playerMin)) ? +r.playerMin : 1 }; }
+function cleanCalc(r){ return { from: (r && /^\d{4}-\d{2}-\d{2}$/.test(r.from)) ? r.from : '', base: (r && r.base === '1000') ? '1000' : 'set', recAll: !(r && r.recAll === false), teamRot: !!(r && r.teamRot), teamMin: (r && [1,2,3,5].includes(+r.teamMin)) ? +r.teamMin : 1, playerMin: (r && [1,3,5,10].includes(+r.playerMin)) ? +r.playerMin : 1, winOnly: !!(r && r.winOnly), winFloor: (r && +r.winFloor >= 0.6 && +r.winFloor <= 0.95) ? Math.round(+r.winFloor*100)/100 : 0.75 }; }
 let calc = (function(){
   try{ const raw = localStorage.getItem(LS_CALC); if(raw) return cleanCalc(JSON.parse(raw)); }catch(e){}
   // prima volta: i tornei già presenti restano gli unici a contare, così le classifiche non cambiano
   let min = ''; archive.forEach(a => { const k = dateKey(a.date); if(k && (!min || k < min)) min = k; });
-  return { from:min, base:'set', recAll:true, teamRot:false, teamMin:1, playerMin:1 };
+  return { from:min, base:'set', recAll:true, teamRot:false, teamMin:1, playerMin:1, winOnly:false, winFloor:0.75 };
 })();
 function saveCalc(){ try{ localStorage.setItem(LS_CALC, JSON.stringify(calc)); }catch(e){} }
 saveCalc();
@@ -471,12 +471,16 @@ function tiebreakIsPlausible(tb1, tb2){
   return true;
 }
 
+function winFloor(){ return (calc && calc.winFloor) || WIN_FLOOR; }
 function gameScore(s1, s2, tb){
+  // Solo vittorie/sconfitte: conta chi ha vinto (1 / 0), senza guardare lo scarto di game. Pareggio vero = 0,5.
+  if(calc && calc.winOnly) return matchWinner(s1, s2, tb);
+  const WF = winFloor();
   if(s1 === s2){
     // 6-6 deciso al tie-break: partita conclusa, il margine si misura sui punti del tie-break invece che sui game.
     if(tb && tb[0] !== tb[1]){
       const d = Math.abs(tb[0]-tb[1]), n = tb[0]+tb[1];
-      const x = WIN_FLOOR + (1 - WIN_FLOOR)*Math.pow(Math.min(1, d/n), SCORE_EXP);
+      const x = WF + (1 - WF)*Math.pow(Math.min(1, d/n), SCORE_EXP);
       return tb[0] > tb[1] ? x : 1 - x;
     }
     return 0.5;
@@ -484,10 +488,10 @@ function gameScore(s1, s2, tb){
   const d = Math.abs(s1-s2), mx = Math.max(s1, s2), n = s1 + s2;
   let x;
   if(scoreFinished(s1, s2)){
-    x = WIN_FLOOR + (1 - WIN_FLOOR)*Math.pow(Math.min(1, d/n), SCORE_EXP);
+    x = WF + (1 - WF)*Math.pow(Math.min(1, d/n), SCORE_EXP);
   } else {
     const N = mx < 6 ? Math.max(n, SCORE_MIN_GAMES) : n;
-    x = Math.min(WIN_FLOOR, 0.5 + 0.5*Math.pow(Math.min(1, d/N), SCORE_EXP));
+    x = Math.min(WF, 0.5 + 0.5*Math.pow(Math.min(1, d/N), SCORE_EXP));
   }
   return s1 > s2 ? x : 1 - x;
 }
@@ -1794,6 +1798,7 @@ function exportSheets(){
     ['ELIMINA TORNEI PRIMA DI | data   ·   ELIMINA TORNEO | data   ·   ESCLUDI TORNEO | data   ·   INCLUDI TORNEO | data'],
     ['DATA INIZIO CALCOLI | data (vuoto = tutti i tornei)   ·   RATING DI PARTENZA | valore impostato oppure 1000   ·   SERIE E RECORD | tutta la storia oppure dalla data di inizio'],
     ['RATING INIZIALE | giocatore | valore   ·   CONGELA, SCONGELA, NASCONDI, MOSTRA | giocatore   ·   RINOMINA GIOCATORE | vecchio | nuovo'],
+    ['SOLO VITTORIE E SCONFITTE | SI oppure NO (Elo e Glicko-2 ignorano lo scarto di game)   ·   SOGLIA VITTORIA | da 0,6 a 0,95, predefinito 0,75 (più è alta, meno conta lo scarto di game)'],
     ['L\'esportazione lascia il foglio Comandi vuoto: svuotalo anche tu dopo l\'uso, per non rieseguire gli stessi comandi.']
   ] });
   sheets.push({ name:'Giocatori', freeze:true, filter:true, widths:[24,16,12,12,8],
@@ -2078,6 +2083,15 @@ function buildImportPlan(sheets, fileName){
         const base = /^(valore impostato|impostato|set)$/.test(b) ? 'set' : (b === '1000' ? '1000' : null);
         if(!base){ err(at, r._r, 'valore non valido ('+v1+'): scrivi "valore impostato" oppure 1000'); return; }
         push('base', 'Rating di partenza: '+(base === '1000' ? '1000 per tutti' : 'valore impostato'), base !== calc.base ? 1 : 0, { value:base });
+      } else if(cm === 'solo vittorie e sconfitte' || cm === 'solo vs'){
+        const b = normName(v1), on = /^(si|s|yes|y|1|true|x)$/.test(b), off = /^(no|n|0|false)$/.test(b);
+        if(!on && !off){ err(at, r._r, 'valore non valido ('+v1+'): scrivi SI oppure NO'); return; }
+        push('winOnly', 'Elo e Glicko-2: '+(on ? 'solo vittorie e sconfitte' : 'con lo scarto di game'), on !== !!calc.winOnly ? 1 : 0, { value:on });
+      } else if(cm === 'soglia vittoria'){
+        const v = xlNum(v1);
+        if(v === null || Number.isNaN(v) || v < 0.6 || v > 0.95){ err(at, r._r, 'valore non valido ('+v1+'): scrivi un numero tra 0,6 e 0,95 (predefinito 0,75)'); return; }
+        const w = Math.round(v*100)/100;
+        push('winFloor', 'Soglia vittoria: '+String(w).replace('.', ','), w !== winFloor() ? 1 : 0, { value:w });
       } else if(cm === 'serie e record'){
         const b = normName(v1), all = /^(tutta la storia|tutta|tutti)$/.test(b), only = /^(dalla data di inizio|dalla data|solo dalla data di inizio)$/.test(b);
         if(!all && !only){ err(at, r._r, 'valore non valido ('+v1+'): scrivi "tutta la storia" oppure "dalla data di inizio"'); return; }
@@ -2221,6 +2235,8 @@ function applyImportCommand(c){
   else if(c.kind === 'from'){ calc.from = c.value; saveCalc(); }
   else if(c.kind === 'base'){ calc.base = c.value; saveCalc(); }
   else if(c.kind === 'rec'){ calc.recAll = !!c.value; saveCalc(); }
+  else if(c.kind === 'winOnly'){ calc.winOnly = !!c.value; saveCalc(); }
+  else if(c.kind === 'winFloor'){ calc.winFloor = c.value; saveCalc(); }
   else if(c.kind === 'rating'){ const id = idOfName(c.name); if(id) roster[id].elo0 = c.value; }
   else if(c.kind === 'flag'){ const id = idOfName(c.name); if(id) roster[id][c.field] = c.want; }
   else if(c.kind === 'rename'){
@@ -2379,6 +2395,7 @@ function dataSection(){
   html += '<div class="data-row"><label style="font-size:13.5px;">Conta i tornei dal <input type="date" value="'+esc(calc.from)+'" onchange="setCalcFrom(this.value)" /></label></div>';
   html += '<div class="data-row"><label style="font-size:13.5px;">Rating di partenza <select onchange="setCalcBase(this.value)"><option value="set"'+(calc.base==='set'?' selected':'')+'>valore impostato</option><option value="1000"'+(calc.base==='1000'?' selected':'')+'>1000 per tutti</option></select></label></div>';
   html += '<div class="data-row"><label style="font-size:13.5px;display:flex;align-items:center;gap:8px;"><input type="checkbox" '+(calc.recAll !== false ? 'checked' : '')+' onchange="setRecAll(this.checked)" style="width:18px;height:18px;" /> Serie e record: usa tutta la storia, anche prima della data di inizio</label></div>';
+  html += '<div class="data-row">'+winOnlyCheckboxHtml()+'</div>';
   html += '<p class="hint">Contano '+archive.filter(countsForRatings).length+' tornei su '+archive.length+'. Quelli prima della data restano in archivio ma non entrano in Elo, Glicko-2, % vittorie e classifica squadre. I giocatori congelati tengono il loro valore. Data vuota = conta tutto.</p>';
   if(dataMsg){ html += '<p class="hint" style="margin-top:8px;">'+dataMsg+'</p>'; }
   html += '</section>';
@@ -2391,6 +2408,10 @@ function setTeamRot(on){ calc.teamRot = !!on; teamShown = 25; saveCalc(); render
 function setTeamMin(v){ calc.teamMin = [1,2,3,5].includes(+v) ? +v : 1; teamShown = 25; saveCalc(); render(); }
 function moreTeams(){ teamShown += 25; const y = window.scrollY; render(); window.scrollTo(0, y); }
 function setRecAll(on){ calc.recAll = !!on; saveCalc(); render(); }
+function setWinOnly(on){ calc.winOnly = !!on; applyCalc(); }
+function winOnlyCheckboxHtml(){
+  return '<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin:0 0 10px;"><input type="checkbox" '+(calc.winOnly ? 'checked' : '')+' onchange="setWinOnly(this.checked)" style="width:18px;height:18px;" /> Solo vittorie/sconfitte (ignora lo scarto di game)</label>';
+}
 function setCalcBase(v){ calc.base = (v === '1000') ? '1000' : 'set'; applyCalc(); }
 
 function teamKeyIds(ids){ return [...ids].sort().join('|'); }
@@ -4207,12 +4228,12 @@ function shareRoundWhatsApp(){
   shareText(text.trim(), 'Turno Padel');
 }
 function eloChangesBlock(changes, limit){
-  const lines = [padR('Giocatore', 12) + padL('Prima', 6) + padL('Dopo', 6) + padL('Δ', 7)];
+  const lines = [padR('Giocatore', 12) + padL('Prima', 6) + '|' + padL('Dopo', 5) + '|' + padL('Δ', 6)];
   const sorted = [...changes].sort((x,y)=>(y.after-y.before)-(x.after-x.before));
   (limit ? sorted.slice(0, limit) : sorted).forEach(r => {
     const d = Math.round((r.after - r.before) * 10) / 10;
     if(Math.abs(d) < 0.05) return;
-    lines.push(padR(cutStr(r.name, 11), 12) + padL(Math.round(r.before), 6) + padL(Math.round(r.after), 6) + padL((d > 0 ? '+' : '') + d, 7));
+    lines.push(padR(cutStr(r.name, 11), 12) + padL(Math.round(r.before), 6) + '|' + padL(Math.round(r.after), 5) + '|' + padL((d > 0 ? '+' : '') + d, 6));
   });
   if(limit && sorted.length > limit) lines.push('… +' + (sorted.length - limit) + ' altri');
   return monoBlock(lines);
@@ -4231,7 +4252,7 @@ function formatArchiveResults(a){
   let anyUpset = false;
   (a.history || []).forEach(h => {
     text += '*Turno ' + h.round + '*\n';
-    (h.matches || []).forEach(m => { anyUpset = anyUpset || isUpset(m); text += '• ' + m.a + ' – ' + m.b + ' → *' + scoreText(m) + '*' + (isUpset(m) ? ' ⚡' : '') + '\n'; });
+    (h.matches || []).forEach(m => { anyUpset = anyUpset || isUpset(m); const sn = matchSideNames(a, m); text += '• ' + sn[0] + ' – ' + sn[1] + ' → *' + scoreText(m) + '*' + (isUpset(m) ? ' ⚡' : '') + '\n'; });
     text += '\n';
   });
   if(anyUpset) text += '⚡ = sorpresa (risultato poco previsto)\n\n';
@@ -4266,9 +4287,9 @@ function formatArchiveResults(a){
     })).sort((x,y) => y.wins - x.wins || (y.gW-y.gL) - (x.gW-x.gL) || y.gW - x.gW);
     if(rows.length){
       text += '*Classifica serata*\n';
-      const lines = [padR('#', 4) + padR('Giocatore', 12) + padL('V', 4) + padL('Game', 8)];
+      const lines = [padR('#', 4) + padR('Giocatore', 12) + padL('V', 4) + '|' + padL('Game', 7)];
       rows.forEach((r,i) => {
-        lines.push(padR(String(i+1)+'.', 4) + padR(cutStr(r.name, 11), 12) + padL(fmtWins(r.wins), 4) + padL(r.gW + '-' + r.gL, 8));
+        lines.push(padR(String(i+1)+'.', 4) + padR(cutStr(r.name, 11), 12) + padL(fmtWins(r.wins), 4) + '|' + padL(r.gW + '-' + r.gL, 7));
       });
       text += monoBlock(lines) + '\n';
     }
@@ -4340,9 +4361,9 @@ function shareRankingWhatsApp(){
     const rows = computeGlicko(rl).filter(r => !(roster[r.id] && roster[r.id].frozen) && r.games >= minP).sort((a,b)=> b.rating-a.rating || a.name.localeCompare(b.name));
     const ranks = computeRanks(rows, r => Math.round(r.rating));
     const mv = movement(positionsGlicko, rl, minP);
-    lines.push(padR('#', 4) + padR('Giocatore', 12) + padL('Rating', 7) + padL('±RD', 5) + padL('Trend', 6));
+    lines.push(padR('#', 4) + padR('Giocatore', 12) + padL('Rating', 7) + '|' + padL('±RD', 4) + padL('Trend', 6));
     rows.forEach((r,i) => {
-      lines.push(padR(rankLabel(ranks[i]), 4) + padR(nm(r.id, r.name, vOn ? r.games : undefined), 12) + padL(Math.round(r.rating), 7) + padL(Math.round(r.rd), 5) + padL(arrowOf(mv, r.id), 6));
+      lines.push(padR(rankLabel(ranks[i]), 4) + padR(nm(r.id, r.name, vOn ? r.games : undefined), 12) + padL(Math.round(r.rating), 7) + '|' + padL(Math.round(r.rd), 4) + padL(arrowOf(mv, r.id), 6));
     });
   } else if(rankMode === 'win'){
     text = '📊 *CLASSIFICA % VITTORIE*\n(min. ' + MIN_MATCHES_WINRATE + ' partite)\n\n';
@@ -4862,7 +4883,8 @@ function rankingView(){
   html += '<button class="small'+(rankMode==='win'?' on':'')+'" onclick="setRankMode(\'win\')">% vittorie</button>';
   html += '<button class="small'+(rankMode==='glicko'?' on':'')+'" onclick="setRankMode(\'glicko\')">Glicko-2</button></div>';
   html += extrasToggleHtml();
-  html += rankVenueSelectHtml() + (rankMode === 'win' ? '' : rankMinSelectHtml());
+  html += rankVenueSelectHtml() + (rankMode === 'win' ? '' : rankMinSelectHtml() + winOnlyCheckboxHtml());
+  if(rankMode !== 'win' && calc.winOnly){ html += '<p class="hint">Elo e Glicko-2 contano solo chi ha vinto: 6-0 e 6-5 valgono uguale. È un\'impostazione di tutta l\'app (anche Variazioni Elo e trend) e ricalcola i rating.</p>'; }
   if(vOn){ html += '<p class="hint">Solo i tornei giocati a <b>'+esc(vOn)+'</b> ('+rl.filter(countsForRatings).length+'). I rating ripartono dal valore iniziale: non sono confrontabili con quelli generali.</p>'; }
   html += '<div class="btn-pair" style="margin-bottom:12px;"><button class="secondary" style="margin-top:0;" onclick="shareRankingWhatsApp()">Condividi classifica</button><button class="secondary" style="margin-top:0;" onclick="shareTrendsWhatsApp()">Condividi trend</button></div>';
 
