@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v52">
+<meta name="app-version" content="v54">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -57,6 +57,7 @@
 
   button.primary{width:100%;background:var(--ball);color:#1C2400;border:none;border-radius:12px;font-family:var(--font-head);font-weight:600;font-size:15px;padding:15px;cursor:pointer;}
   button.primary:active{transform:scale(0.98);}
+  button.primary:disabled{opacity:.4;cursor:not-allowed;}
   button.secondary{width:100%;background:transparent;color:var(--ball);border:1px solid rgba(215,232,86,0.4);border-radius:12px;font-family:var(--font-head);font-weight:600;font-size:14px;padding:13px;cursor:pointer;margin-top:10px;}
   button.ghost, label.ghost{width:100%;background:transparent;color:var(--ink);border:1px solid var(--card-border);border-radius:12px;font-family:var(--font-body);font-weight:500;font-size:14px;padding:12px;cursor:pointer;margin-top:10px;display:block;box-sizing:border-box;text-align:center;}
   button.small{background:transparent;color:var(--ink-dim);border:1px solid var(--card-border);border-radius:8px;font-size:11px;padding:6px 9px;cursor:pointer;font-family:var(--font-body);white-space:nowrap;}
@@ -244,10 +245,38 @@ const EXTRA_K_FACTOR = 0.5;
 const MIN_MATCHES_WINRATE = 5;
 // Giocatore "provvisorio": ancora nella fase di K alto (poche partite), la posizione può cambiare molto.
 const PROVISIONAL_MATCHES = K_NEW_UNTIL;
-function isProvisional(id){ const p = roster[id]; return !!p && (p.matches || 0) < PROVISIONAL_MATCHES; }
-function provTag(id){ return isProvisional(id) ? '<span class="prov" title="Meno di '+PROVISIONAL_MATCHES+' partite: il rating può cambiare molto">prov.</span>' : ''; }
+function isProvisional(id, m){ const p = roster[id]; return !!p && (m === undefined ? (p.matches || 0) : m) < PROVISIONAL_MATCHES; }
+function provTag(id, m){ return isProvisional(id, m) ? '<span class="prov" title="Meno di '+PROVISIONAL_MATCHES+' partite: il rating può cambiare molto">prov.</span>' : ''; }
 const LS_RANK_MODE = 'padel-rankmode-v1';
 let rankMode = (function(){ try{ const m = localStorage.getItem(LS_RANK_MODE); return (m==='win' || m==='glicko') ? m : 'elo'; }catch(e){ return 'elo'; } })();
+// Filtri delle classifiche: luogo (solo i tornei giocati lì) e minimo di partite per Elo / Glicko-2.
+let rankVenue = '';
+function venuesInArchive(){ return Array.from(new Set(archive.map(a => a.venue).filter(Boolean))).sort((x, y) => x.localeCompare(y)); }
+function activeRankVenue(){ return rankVenue && venuesInArchive().includes(rankVenue) ? rankVenue : ''; }
+function rankArchive(){ const v = activeRankVenue(); return v ? archive.filter(a => a.venue === v) : archive; }
+function setRankVenue(v){ rankVenue = v; teamShown = 25; render(); }
+function playerMin(){ return calc.playerMin || 1; }
+function setPlayerMin(v){ calc.playerMin = [1,3,5,10].includes(+v) ? +v : 1; saveCalc(); render(); }
+function rankVenueSelectHtml(){
+  const vs = venuesInArchive();
+  if(!vs.length) return '';
+  const cur = activeRankVenue();
+  return '<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin:0 0 10px;">Luogo <select onchange="setRankVenue(this.value)" style="flex:1;min-width:0;"><option value="">Tutti i luoghi</option>'+vs.map(v => '<option value="'+esc(v)+'"'+(v === cur ? ' selected' : '')+'>'+esc(v)+'</option>').join('')+'</select></label>';
+}
+function rankMinSelectHtml(){
+  const m = playerMin();
+  return '<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin:0 0 10px;">Minimo partite <select onchange="setPlayerMin(this.value)">'+[1,3,5,10].map(n => '<option value="'+n+'"'+(n === m ? ' selected' : '')+'>'+(n === 1 ? '1 (tutte)' : n)+'</option>').join('')+'</select></label>';
+}
+// Giocatori della classifica: con il filtro luogo, elo/partite/vittorie vengono ricalcolati solo sui tornei di quel luogo.
+function rankingPlayers(){
+  const v = activeRankVenue();
+  let all = activeKeys().map(k => ({ key:k, ...roster[k] })).filter(p => !p.frozen);
+  if(!v) return { all, list: archive, venue: '' };
+  const list = rankArchive();
+  const st = computeEloStates(list, false);
+  all = all.filter(p => st[p.key]).map(p => Object.assign({}, p, { elo: st[p.key].elo, matches: st[p.key].matches, wins: st[p.key].wins }));
+  return { all, list, venue: v };
+}
 function setRankMode(m){ rankMode = m; try{ localStorage.setItem(LS_RANK_MODE, m); }catch(e){} render(); }
 
 function normalizeTournament(obj){
@@ -327,12 +356,12 @@ function dateKey(d){
   return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');
 }
 const LS_CALC = 'padel-calc-v1';
-function cleanCalc(r){ return { from: (r && /^\d{4}-\d{2}-\d{2}$/.test(r.from)) ? r.from : '', base: (r && r.base === '1000') ? '1000' : 'set', recAll: !(r && r.recAll === false), teamRot: !!(r && r.teamRot), teamMin: (r && [1,2,3,5].includes(+r.teamMin)) ? +r.teamMin : 1 }; }
+function cleanCalc(r){ return { from: (r && /^\d{4}-\d{2}-\d{2}$/.test(r.from)) ? r.from : '', base: (r && r.base === '1000') ? '1000' : 'set', recAll: !(r && r.recAll === false), teamRot: !!(r && r.teamRot), teamMin: (r && [1,2,3,5].includes(+r.teamMin)) ? +r.teamMin : 1, playerMin: (r && [1,3,5,10].includes(+r.playerMin)) ? +r.playerMin : 1 }; }
 let calc = (function(){
   try{ const raw = localStorage.getItem(LS_CALC); if(raw) return cleanCalc(JSON.parse(raw)); }catch(e){}
   // prima volta: i tornei già presenti restano gli unici a contare, così le classifiche non cambiano
   let min = ''; archive.forEach(a => { const k = dateKey(a.date); if(k && (!min || k < min)) min = k; });
-  return { from:min, base:'set', recAll:true, teamRot:false, teamMin:1 };
+  return { from:min, base:'set', recAll:true, teamRot:false, teamMin:1, playerMin:1 };
 })();
 function saveCalc(){ try{ localStorage.setItem(LS_CALC, JSON.stringify(calc)); }catch(e){} }
 saveCalc();
@@ -823,8 +852,9 @@ function strengthMap(){
 function suggestPairings(){
   const ids = Array.from(selected).filter(k => roster[k]);
   const names = ids.map(k => roster[k].name);
-  if(names.length < 4){ document.getElementById('setupErr').textContent = 'Seleziona almeno 4 partecipanti dalla rubrica.'; return; }
-  document.getElementById('setupErr').textContent = '';
+  const selErr = teamSelectionError(names.length);
+  if(selErr){ setTeamMsg(selErr); return; }
+  setTeamMsg('');
   const gm = strengthMap();
   const withStats = ids.map(id => {
     const pl = roster[id];
@@ -902,8 +932,6 @@ function suggestPairings(){
     return { a: left, b: right, top: Math.max(a.elo, b.elo) };
   }).sort((x,y)=> y.top - x.top);
   draftTeams = built.map((t,i) => ({ id:i, p1:t.a.name, p2:t.b.name }));
-  const odd = chosen.odd;
-  if(odd){ draftTeams.push({ id: draftTeams.length, p1: odd.name, p2:'' }); }
   const sig = draftTeams.map(d => d.p1+'|'+d.p2).join(';');
   const label = suggestBy === 'glicko' ? 'Glicko-2' : 'Elo', other = suggestBy === 'glicko' ? 'Elo' : 'Glicko-2';
   if(varyPairs){
@@ -918,7 +946,25 @@ function suggestPairings(){
   lastSuggest = { by: suggestBy, sig };
   render();
 }
-function addEmptyTeam(){ draftTeams.push({ id: draftTeams.length, p1:'', p2:'' }); suggestNote = ''; lastSuggest = null; render(); }
+// Squadre fisse: sempre da 2 giocatori, almeno 4 squadre (8 partecipanti), numero di partecipanti pari.
+function selectedCount(){ return Array.from(selected).filter(k => roster[k]).length; }
+function teamSelectionError(n){
+  if(n < 8) return 'Per le squadre fisse servono almeno 8 partecipanti (4 squadre da 2): ne hai selezionati '+n+'.';
+  if(n % 2 === 1) return 'Hai selezionato '+n+' partecipanti: per le squadre fisse serve un numero pari, aggiungine o toglierne uno.';
+  return '';
+}
+function setTeamMsg(msg){
+  const el = document.getElementById('teamAddErr') || document.getElementById('setupErr');
+  if(el) el.textContent = msg;
+}
+function addEmptyTeam(){
+  const n = selectedCount();
+  let msg = '';
+  if(n < 8) msg = 'Prima seleziona almeno 8 partecipanti dalla rubrica (ora '+n+'): servono almeno 4 squadre da 2.';
+  else if(draftTeams.length >= Math.floor(n/2)) msg = 'Tutti i partecipanti selezionati sono già in una squadra: selezionane altri dalla rubrica.';
+  if(msg){ setTeamMsg(msg); return; }
+  draftTeams.push({ id: draftTeams.length, p1:'', p2:'' }); suggestNote = ''; lastSuggest = null; render();
+}
 function removeTeam(id){ draftTeams = draftTeams.filter(x=>x.id!==id); suggestNote = ''; lastSuggest = null; render(); }
 
 function assignSlot(teamId, field, newName){
@@ -953,7 +999,10 @@ function venueFieldHtml(){
 function updateRounds(val){ t.maxRounds = parseInt(val)||0; saveTournament(); }
 
 function startTournament(){
-  const valid = draftTeams.filter(dt => dt.p1 && dt.p1.trim());
+  const isFull = dt => !!(dt.p1 && dt.p1.trim() && dt.p2 && dt.p2.trim());
+  const valid = draftTeams.filter(isFull);
+  const incompleteTeam = draftTeams.find(dt => !isFull(dt));
+  if(incompleteTeam){ document.getElementById('setupErr').textContent = 'La Squadra '+(incompleteTeam.id+1)+' è incompleta: servono due giocatori (oppure rimuovila).'; return; }
   if(!t.courts || t.courts < 1){ document.getElementById('setupErr').textContent = 'Indica quanti campi avete.'; return; }
   if(!t.maxRounds || t.maxRounds < 1){ document.getElementById('setupErr').textContent = 'Indica quanti turni volete giocare.'; return; }
   if(valid.length < 4){ document.getElementById('setupErr').textContent = 'Servono almeno 4 squadre.'; return; }
@@ -2431,11 +2480,13 @@ function rankLabel(r){ return (r.tied ? '=' : '') + r.rank; }
 
 function teamRankingView(){
   const minM = calc.teamMin || 1;
-  const list = teamStats(undefined, undefined, calc.teamRot).filter(x=>x.matches>=minM).sort((a,b)=>{
+  const vTeam = activeRankVenue();
+  const list = teamStats(rankArchive(), vTeam ? t.venue === vTeam : undefined, calc.teamRot).filter(x=>x.matches>=minM).sort((a,b)=>{
     const wa = a.wins/a.matches, wb = b.wins/b.matches;
     return wb-wa || (b.setsWon-b.setsLost)-(a.setsWon-a.setsLost) || a.name.localeCompare(b.name);
   });
   let html = '<section><p class="section-label">Classifica squadre</p>';
+  html += rankVenueSelectHtml();
   html += '<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin:0 0 10px;"><input type="checkbox" '+(calc.teamRot ? 'checked' : '')+' onchange="setTeamRot(this.checked)" style="width:18px;height:18px;" /> Includi le coppie di Americano e Messicano</label>';
   html += '<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin:0 0 10px;">Minimo partite insieme <select onchange="setTeamMin(this.value)">'+[1,2,3,5].map(n => '<option value="'+n+'"'+(n === minM ? ' selected' : '')+'>'+(n === 1 ? '1 (tutte)' : n)+'</option>').join('')+'</select></label>';
   html += '<p class="hint">Aggrega tutte le volte in cui una stessa coppia ha giocato insieme, tornei di prova esclusi. Le frecce mostrano il cambio di posizione dovuto all\'ultimo torneo archiviato.</p>';
@@ -2444,7 +2495,7 @@ function teamRankingView(){
   } else {
     html += '<div class="rank-list">';
     const ranks = computeRanks(list, tm => Math.round((tm.wins/tm.matches)*100));
-    const mvTeams = movement(positionsTeams);
+    const mvTeams = movement(positionsTeams, rankArchive());
     const shown = Math.min(list.length, teamShown);
     list.slice(0, shown).forEach((tm,i) => {
       const wr = Math.round((tm.wins/tm.matches)*100);
@@ -3724,11 +3775,11 @@ function rosterPanel(){
 
 // ---------- posizioni e frecce: confronto tra la classifica dopo l'ultimo torneo archiviato e quella dopo il penultimo ----------
 
-function positionsElo(list){
+function positionsElo(list, minP){
   const st = computeEloStates(list, false);
   const rows = activeKeys()
     .map(id => { const p = roster[id]; return { id, name:p.name, elo: st[id] ? st[id].elo : p.elo0, matches: st[id] ? st[id].matches : (p.matches0||0), frozen:!!p.frozen }; })
-    .filter(r => r.matches > 0 && !r.frozen)
+    .filter(r => r.matches > 0 && r.matches >= (minP || 1) && !r.frozen)
     .sort((a,b)=> b.elo-a.elo || a.name.localeCompare(b.name));
   const ranks = computeRanks(rows, r => Math.round(r.elo));
   const m = {}; rows.forEach((r,i) => { m[r.id] = ranks[i].rank; });
@@ -3745,9 +3796,9 @@ function positionsWin(list){
   const m = {}; rows.forEach((r,i) => { m[r.id] = ranks[i].rank; });
   return m;
 }
-function positionsGlicko(list){
+function positionsGlicko(list, minP){
   const rows = computeGlicko(list)
-    .filter(r => !(roster[r.id] && roster[r.id].frozen))
+    .filter(r => !(roster[r.id] && roster[r.id].frozen) && r.games >= (minP || 1))
     .sort((a,b)=> b.rating-a.rating || a.name.localeCompare(b.name));
   const ranks = computeRanks(rows, r => Math.round(r.rating));
   const m = {}; rows.forEach((r,i) => { m[r.id] = ranks[i].rank; });
@@ -3763,8 +3814,9 @@ function positionsTeams(list){
   return m;
 }
 // cur = posizioni dopo l'ultimo torneo archiviato, prev = dopo il penultimo (null se ce n'è uno solo o nessuno)
-function movement(fn){
-  return { cur: fn(archive), prev: archive.length >= 2 ? fn(archive.slice(0, -1)) : null };
+function movement(fn, list, minP){
+  list = list || archive;
+  return { cur: fn(list, minP), prev: list.length >= 2 ? fn(list.slice(0, -1), minP) : null };
 }
 function arrow(mv, key){
   if(!mv.prev || mv.cur[key] === undefined) return '<span class="delta same">&ndash;</span>';
@@ -4270,9 +4322,9 @@ function shareLiveResults(){
   }), 'Risultati torneo');
 }
 function shareRankingWhatsApp(){
-  const all = activeKeys().map(k => ({ key:k, ...roster[k] })).filter(p => !p.frozen);
+  const RP = rankingPlayers(), all = RP.all, rl = RP.list, vOn = RP.venue, minP = rankMode === 'win' ? 1 : playerMin();
   let anyProv = false;
-  const nm = (id, name) => { if(isProvisional(id)){ anyProv = true; return cutStr(name, 10) + '*'; } return cutStr(name, 11); };
+  const nm = (id, name, m) => { if(isProvisional(id, m)){ anyProv = true; return cutStr(name, 10) + '*'; } return cutStr(name, 11); };
   let text = '';
   let lines = [];
   const arrowOf = (mv, key) => {
@@ -4285,33 +4337,37 @@ function shareRankingWhatsApp(){
   };
   if(rankMode === 'glicko'){
     text = '📊 *CLASSIFICA GLICKO-2*\n\n';
-    const rows = computeGlicko().filter(r => !(roster[r.id] && roster[r.id].frozen)).sort((a,b)=> b.rating-a.rating || a.name.localeCompare(b.name));
+    const rows = computeGlicko(rl).filter(r => !(roster[r.id] && roster[r.id].frozen) && r.games >= minP).sort((a,b)=> b.rating-a.rating || a.name.localeCompare(b.name));
     const ranks = computeRanks(rows, r => Math.round(r.rating));
-    const mv = movement(positionsGlicko);
+    const mv = movement(positionsGlicko, rl, minP);
     lines.push(padR('#', 4) + padR('Giocatore', 12) + padL('Rating', 7) + padL('±RD', 5) + padL('Trend', 6));
     rows.forEach((r,i) => {
-      lines.push(padR(rankLabel(ranks[i]), 4) + padR(nm(r.id, r.name), 12) + padL(Math.round(r.rating), 7) + padL(Math.round(r.rd), 5) + padL(arrowOf(mv, r.id), 6));
+      lines.push(padR(rankLabel(ranks[i]), 4) + padR(nm(r.id, r.name, vOn ? r.games : undefined), 12) + padL(Math.round(r.rating), 7) + padL(Math.round(r.rd), 5) + padL(arrowOf(mv, r.id), 6));
     });
   } else if(rankMode === 'win'){
     text = '📊 *CLASSIFICA % VITTORIE*\n(min. ' + MIN_MATCHES_WINRATE + ' partite)\n\n';
     const ranked = all.filter(p => p.matches >= MIN_MATCHES_WINRATE)
       .sort((a,b)=> winRate(b)-winRate(a) || b.matches-a.matches || a.name.localeCompare(b.name));
     const ranks = computeRanks(ranked, p => Math.round(winRate(p)*100));
-    const mv = movement(positionsWin);
+    const mv = movement(positionsWin, rl);
     lines.push(padR('#', 4) + padR('Giocatore', 12) + padL('%', 5) + padL('V/P', 7) + padL('Trend', 6));
     ranked.forEach((p,i) => {
-      lines.push(padR(rankLabel(ranks[i]), 4) + padR(nm(p.key, p.name), 12) + padL(Math.round(winRate(p)*100) + '%', 5) + padL(fmtWins(p.wins) + '/' + p.matches, 7) + padL(arrowOf(mv, p.key), 6));
+      lines.push(padR(rankLabel(ranks[i]), 4) + padR(nm(p.key, p.name, vOn ? p.matches : undefined), 12) + padL(Math.round(winRate(p)*100) + '%', 5) + padL(fmtWins(p.wins) + '/' + p.matches, 7) + padL(arrowOf(mv, p.key), 6));
     });
   } else {
     text = '📊 *CLASSIFICA ELO*\n\n';
-    const list = all.filter(p => p.matches > 0).sort((a,b)=> (b.elo||START_ELO)-(a.elo||START_ELO) || a.name.localeCompare(b.name));
+    const list = all.filter(p => p.matches >= Math.max(1, minP)).sort((a,b)=> (b.elo||START_ELO)-(a.elo||START_ELO) || a.name.localeCompare(b.name));
     const ranks = computeRanks(list, p => Math.round(p.elo||START_ELO));
-    const mv = movement(positionsElo);
+    const mv = movement(positionsElo, rl, minP);
     lines.push(padR('#', 4) + padR('Giocatore', 12) + padL('Elo', 6) + padL('Trend', 6));
     list.forEach((p,i) => {
-      lines.push(padR(rankLabel(ranks[i]), 4) + padR(nm(p.key, p.name), 12) + padL(Math.round(p.elo||START_ELO), 6) + padL(arrowOf(mv, p.key), 6));
+      lines.push(padR(rankLabel(ranks[i]), 4) + padR(nm(p.key, p.name, vOn ? p.matches : undefined), 12) + padL(Math.round(p.elo||START_ELO), 6) + padL(arrowOf(mv, p.key), 6));
     });
   }
+  const extra = [];
+  if(vOn) extra.push('📍 ' + vOn);
+  if(minP > 1) extra.push('min. ' + minP + ' partite');
+  if(extra.length) text = text.replace(/\n\n$/, '\n' + extra.join(' · ') + '\n\n');
   text += monoBlock(lines);
   const frozen = activeKeys().filter(k => roster[k].frozen).map(k => roster[k].name);
   if(frozen.length) text += '\n❄ Congelati: ' + frozen.join(', ') + '\n';
@@ -4798,7 +4854,7 @@ function playerProfileView(id){
 }
 
 function rankingView(){
-  const all = activeKeys().map(k => ({key:k, ...roster[k]})).filter(p => !p.frozen);
+  const RP = rankingPlayers(), all = RP.all, rl = RP.list, vOn = RP.venue, minP = rankMode === 'win' ? 1 : playerMin();
   const diagBtn = recordsGroupHtml() + '<button class="ghost" style="margin-top:14px;" onclick="showDiag=true;showRanking=false;render();">Diagnostica rating</button>';
   let html = '<section><p class="section-label">Classifica giocatori</p>';
   if(activeKeys().some(k => roster[k].frozen)){ html += '<p class="hint">I giocatori con rating ❄ congelato non compaiono in classifica.</p>'; }
@@ -4806,23 +4862,27 @@ function rankingView(){
   html += '<button class="small'+(rankMode==='win'?' on':'')+'" onclick="setRankMode(\'win\')">% vittorie</button>';
   html += '<button class="small'+(rankMode==='glicko'?' on':'')+'" onclick="setRankMode(\'glicko\')">Glicko-2</button></div>';
   html += extrasToggleHtml();
+  html += rankVenueSelectHtml() + (rankMode === 'win' ? '' : rankMinSelectHtml());
+  if(vOn){ html += '<p class="hint">Solo i tornei giocati a <b>'+esc(vOn)+'</b> ('+rl.filter(countsForRatings).length+'). I rating ripartono dal valore iniziale: non sono confrontabili con quelli generali.</p>'; }
   html += '<div class="btn-pair" style="margin-bottom:12px;"><button class="secondary" style="margin-top:0;" onclick="shareRankingWhatsApp()">Condividi classifica</button><button class="secondary" style="margin-top:0;" onclick="shareTrendsWhatsApp()">Condividi trend</button></div>';
 
   if(rankMode === 'glicko'){
     html += '<p class="hint">Rating ricalcolato dai tornei archiviati (ogni torneo chiuso è un periodo di valutazione, i tornei di prova sono esclusi). Il ± indica quanto il rating è incerto: scende con le partite e risale se salti delle serate. Ogni partita vale in base al punteggio (conclusa: da 0,81 per il 6-5 a 1 per il 6-0; interrotta o pari: tra 0,5 e 0,75). Parte dal rating iniziale (come l\'Elo); i congelati ❄ restano fissi e non compaiono in classifica. Le frecce mostrano il cambio di posizione dovuto all\'ultimo torneo archiviato.</p>';
-    const rows = computeGlicko().filter(r => !(roster[r.id] && roster[r.id].frozen)).sort((a,b)=> b.rating-a.rating || a.name.localeCompare(b.name));
-    const seenIds = new Set(rows.map(r => r.id));
-    const rest = all.filter(p => !seenIds.has(p.key)).sort((a,b)=> a.name.localeCompare(b.name));
+    const rowsAll = computeGlicko(rl).filter(r => !(roster[r.id] && roster[r.id].frozen)).sort((a,b)=> b.rating-a.rating || a.name.localeCompare(b.name));
+    const rows = rowsAll.filter(r => r.games >= minP);
+    const below = rowsAll.filter(r => r.games < minP);
+    const seenIds = new Set(rowsAll.map(r => r.id));
+    const rest = vOn ? [] : all.filter(p => !seenIds.has(p.key)).sort((a,b)=> a.name.localeCompare(b.name));
     if(rows.length === 0){
-      html += '<p class="roster-empty">Nessuna partita archiviata ancora: chiudi un torneo per vedere il Glicko-2.</p>';
+      html += '<p class="roster-empty">'+(vOn ? 'Nessuna partita archiviata in questo luogo.' : (below.length ? 'Nessun giocatore con almeno '+minP+' partite.' : 'Nessuna partita archiviata ancora: chiudi un torneo per vedere il Glicko-2.'))+'</p>';
     } else {
       html += '<div class="rank-list">';
       const ranks = computeRanks(rows, r => Math.round(r.rating));
-      const mvG = movement(positionsGlicko);
+      const mvG = movement(positionsGlicko, rl, minP);
       rows.forEach((r,i) => {
         const rk = ranks[i];
         html += '<div class="rank-row'+(rk.rank===1?' top1':'')+'"><span class="rank-num'+(rk.tied?' tied':'')+'">'+rankLabel(rk)+'</span>';
-        html += '<span class="rank-name clickable" onclick="openPlayerProfile('+jsArg(r.id)+')">'+esc(r.name)+'</span>'+provTag(r.id);
+        html += '<span class="rank-name clickable" onclick="openPlayerProfile('+jsArg(r.id)+')">'+esc(r.name)+'</span>'+provTag(r.id, vOn ? r.games : undefined);
         html += arrow(mvG, r.id);
         html += '<span class="rank-elo">'+Math.round(r.rating)+'</span>';
         html += '<span class="rank-meta">±'+Math.round(r.rd)+' · '+r.games+'</span></div>';
@@ -4831,6 +4891,9 @@ function rankingView(){
     }
     if(rest.length > 0){
       html += '<p class="hint" style="margin-top:10px;">Senza partite archiviate: '+rest.map(p => esc(p.name)).join(', ')+'.</p>';
+    }
+    if(below.length > 0){
+      html += '<p class="hint" style="margin-top:10px;">Meno di '+minP+' partite: '+below.map(r => esc(r.name)).join(', ')+'.</p>';
     }
     html += diagBtn;
     html += '</section>';
@@ -4851,11 +4914,11 @@ function rankingView(){
       } else {
         html += '<div class="rank-list">';
         const ranks = computeRanks(ranked, p => Math.round(winRate(p)*100));
-        const mvWin = movement(positionsWin);
+        const mvWin = movement(positionsWin, rl);
         ranked.forEach((p,i) => {
           const r = ranks[i];
           html += '<div class="rank-row'+(r.rank===1?' top1':'')+'"><span class="rank-num'+(r.tied?' tied':'')+'">'+rankLabel(r)+'</span>';
-          html += '<span class="rank-name clickable" onclick="openPlayerProfile('+jsArg(p.key)+')">'+esc(p.name)+'</span>'+provTag(p.key);
+          html += '<span class="rank-name clickable" onclick="openPlayerProfile('+jsArg(p.key)+')">'+esc(p.name)+'</span>'+provTag(p.key, vOn ? p.matches : undefined);
           html += arrow(mvWin, p.key);
           html += '<span class="rank-elo">'+Math.round(winRate(p)*100)+'%</span>';
           html += '<span class="rank-meta">'+fmtWins(p.wins)+' / '+p.matches+'</span></div>';
@@ -4880,24 +4943,28 @@ function rankingView(){
 
   html += '<p class="hint">Punteggio Elo: sale o scende in base alla forza degli avversari affrontati, non solo al risultato. Si ricalcola dai tornei archiviati, partendo dal rating iniziale (di base 1000). I congelati ❄ restano fissi e non compaiono in classifica. Le frecce mostrano il cambio di posizione dovuto all\'ultimo torneo archiviato.</p>';
   // Come nelle altre classifiche, chi non ha ancora partite archiviate non compare in graduatoria.
-  const list = all.filter(p => p.matches > 0).sort((a,b)=> (b.elo||START_ELO) - (a.elo||START_ELO) || a.name.localeCompare(b.name));
-  const idle = all.filter(p => !(p.matches > 0)).sort((a,b)=> a.name.localeCompare(b.name));
+  const list = all.filter(p => p.matches >= Math.max(1, minP)).sort((a,b)=> (b.elo||START_ELO) - (a.elo||START_ELO) || a.name.localeCompare(b.name));
+  const belowE = all.filter(p => p.matches > 0 && p.matches < minP).sort((a,b)=> a.name.localeCompare(b.name));
+  const idle = vOn ? [] : all.filter(p => !(p.matches > 0)).sort((a,b)=> a.name.localeCompare(b.name));
   if(list.length === 0){
-    html += '<p class="roster-empty">Nessuno storico ancora.</p>';
+    html += '<p class="roster-empty">'+(vOn ? 'Nessuna partita archiviata in questo luogo.' : (belowE.length ? 'Nessun giocatore con almeno '+minP+' partite.' : 'Nessuno storico ancora.'))+'</p>';
   } else {
     html += '<div class="rank-list">';
     const ranks = computeRanks(list, p => Math.round(p.elo||START_ELO));
-    const mvElo = movement(positionsElo);
+    const mvElo = movement(positionsElo, rl, minP);
     list.forEach((p,i) => {
       const wr = winRate(p);
       const r = ranks[i];
       html += '<div class="rank-row'+(r.rank===1?' top1':'')+'"><span class="rank-num'+(r.tied?' tied':'')+'">'+rankLabel(r)+'</span>';
-      html += '<span class="rank-name clickable" onclick="openPlayerProfile('+jsArg(p.key)+')">'+esc(p.name)+'</span>'+provTag(p.key);
+      html += '<span class="rank-name clickable" onclick="openPlayerProfile('+jsArg(p.key)+')">'+esc(p.name)+'</span>'+provTag(p.key, vOn ? p.matches : undefined);
       html += arrow(mvElo, p.key);
       html += '<span class="rank-elo">'+Math.round(p.elo||START_ELO)+'</span>';
       html += '<span class="rank-meta">'+(wr===null?'—':Math.round(wr*100)+'% · '+p.matches)+'</span></div>';
     });
     html += '</div>';
+  }
+  if(belowE.length > 0){
+    html += '<p class="hint" style="margin-top:10px;">Meno di '+minP+' partite: '+belowE.map(p => esc(p.name)).join(', ')+'.</p>';
   }
   if(idle.length > 0){
     html += '<p class="hint" style="margin-top:10px;">Senza partite archiviate: '+idle.map(p => esc(p.name)).join(', ')+'.</p>';
@@ -4974,8 +5041,11 @@ function renderMain(){
       html += '<button class="small'+(suggestBy==='glicko'?' on':'')+'" onclick="setSuggestBy(\'glicko\')">Abbina per Glicko-2</button></div>';
       html += '<label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13.5px;"><input type="checkbox" '+(varyPairs?'checked':'')+' onchange="setVaryPairs(this.checked)" style="width:18px;height:18px;accent-color:var(--ball);flex-shrink:0;" /> Un po\' di casualità (giocatori di forza simile si scambiano)</label>';
       html += '<label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13.5px;"><input type="checkbox" '+(ignoreSides?'checked':'')+' onchange="setIgnoreSides(this.checked)" style="width:18px;height:18px;accent-color:var(--ball);flex-shrink:0;" /> Ignora Sx/Dx dichiarati</label>';
+      const selN = selectedCount(), selBad = teamSelectionError(selN);
+      html += '<p class="hint" style="margin-top:12px;'+(selBad ? 'color:var(--danger);font-weight:600;' : '')+'">Selezionati: '+selN+' · servono almeno 8 partecipanti, in numero pari (squadre da 2).</p>';
       html += '<button class="secondary" onclick="suggestPairings()">Suggerisci abbinamenti</button>';
       html += '<button class="ghost" onclick="addEmptyTeam()">Oppure crea una squadra a mano</button>';
+      html += '<p class="err" id="teamAddErr"></p>';
       if(draftTeams.length === 0){ html += '<p class="err" id="setupErr"></p>'; }
       html += '</section>';
     } else {
@@ -5040,7 +5110,12 @@ function renderMain(){
       html += '<div><label class="field">Turni da giocare</label><input type="number" id="roundsInput" min="1" value="'+(t.maxRounds||3)+'" oninput="updateRounds(this.value)" /></div>';
       html += '</div>';
       html += '<label style="display:flex;align-items:center;gap:8px;margin-top:14px;font-size:13.5px;"><input type="checkbox" '+(t.unofficial?'checked':'')+' onchange="t.unofficial=this.checked;saveTournament();" style="width:18px;height:18px;accent-color:var(--ball);flex-shrink:0;" /> Torneo di prova (i risultati non contano per Elo, classifiche e storico)</label>';
-      html += '<button class="primary" onclick="startTournament()" style="margin-top:14px;">Inizia torneo</button>';
+      const fullTeams = draftTeams.filter(dt => dt.p1 && dt.p1.trim() && dt.p2 && dt.p2.trim()).length;
+      const openTeam = draftTeams.find(dt => !(dt.p1 && dt.p1.trim() && dt.p2 && dt.p2.trim()));
+      const startBlock = fullTeams < 4 || !!openTeam;
+      if(fullTeams < 4){ html += '<p class="hint" style="margin-top:14px;color:var(--danger);font-weight:600;">Servono almeno 4 squadre complete per iniziare: ora ne hai '+fullTeams+'.</p>'; }
+      else if(openTeam){ html += '<p class="hint" style="margin-top:14px;color:var(--danger);font-weight:600;">La Squadra '+(openTeam.id+1)+' è incompleta: completala o rimuovila.</p>'; }
+      html += '<button class="primary" onclick="startTournament()" style="margin-top:'+(startBlock ? 8 : 14)+'px;"'+(startBlock ? ' disabled' : '')+'>Inizia torneo</button>';
       html += '<p class="err" id="setupErr"></p></section>';
     }
 
