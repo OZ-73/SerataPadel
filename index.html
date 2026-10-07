@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v55">
+<meta name="app-version" content="v56">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -158,6 +158,14 @@
   .data-row{display:flex;gap:8px;}
   .data-row button, .data-row label{flex:1;margin-top:0;}
   .data-sep{margin-top:22px;padding-top:16px;border-top:1px solid rgba(128,128,128,.35);}
+  .data-row + .data-row{margin-top:8px;}
+  .data-sub{font-family:var(--font-head);font-size:12px;color:var(--ink-dim);font-weight:600;margin:20px 0 10px;padding-top:16px;border-top:1px solid rgba(128,128,128,.35);}
+  .data-sub.first{margin-top:4px;padding-top:0;border-top:none;}
+  .set-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 10px;font-size:13.5px;}
+  .set-row input[type=date], .set-row select{width:auto;flex:0 0 auto;max-width:58%;padding:9px 12px;font-size:14px;background-color:var(--card);border:1px solid var(--card-border);border-radius:10px;color:var(--ink);font-family:var(--font-body);}
+  .set-row select{padding-right:30px;}
+  .set-check{display:flex;align-items:flex-start;gap:10px;font-size:13.5px;line-height:1.4;margin:0 0 12px;cursor:pointer;}
+  .set-check input{width:18px;height:18px;flex-shrink:0;margin:1px 0 0;accent-color:var(--ball);}
   input[type=file]{display:none;}
 
   footer{text-align:center;color:var(--ink-dim);font-size:12px;margin-top:2rem;}
@@ -472,9 +480,10 @@ function tiebreakIsPlausible(tb1, tb2){
 }
 
 function winFloor(){ return (calc && calc.winFloor) || WIN_FLOOR; }
-function gameScore(s1, s2, tb){
-  // Solo vittorie/sconfitte: conta chi ha vinto (1 / 0), senza guardare lo scarto di game. Pareggio vero = 0,5.
-  if(calc && calc.winOnly) return matchWinner(s1, s2, tb);
+// Punteggio di una partita per Elo e Glicko-2. Con la spunta "solo V/S": conta chi ha vinto (1 / 0), pareggio vero 0,5.
+function gameScore(s1, s2, tb){ return (calc && calc.winOnly) ? matchWinner(s1, s2, tb) : marginScore(s1, s2, tb); }
+// Punteggio con lo scarto di game: NON dipende dalla spunta, così la diagnostica può sempre confrontare i due metodi.
+function marginScore(s1, s2, tb){
   const WF = winFloor();
   if(s1 === s2){
     // 6-6 deciso al tie-break: partita conclusa, il margine si misura sui punti del tie-break invece che sui game.
@@ -2382,20 +2391,26 @@ function backupBanner(){
 }
 
 function dataSection(){
+  const lastBk = getLastBackup();
   let html = '<section><p class="section-label">Dati</p>';
   html += importPreviewHtml();
+  // --- Backup
+  html += '<p class="data-sub first">Backup</p>';
   html += '<div class="data-row"><button class="ghost" onclick="shareBackup()">Condividi backup</button>';
   html += '<button class="ghost" onclick="exportData()">Scarica (.zip)</button></div>';
-  html += '<div class="data-row" style="margin-top:18px;"><button class="ghost" onclick="exportExcel()">Esporta in Excel (.xlsx)</button><label class="ghost" for="importXlsx" style="cursor:pointer;">Importa da Excel</label><input type="file" id="importXlsx" accept=".xlsx" onchange="handleXlsxFile(this.files[0]); this.value=\'\'" style="display:none;" /></div>';
-  if(importUndo) html += '<div class="data-row"><button class="ghost" onclick="undoImport()">Annulla ultima importazione ('+esc(importUndo.file)+')</button></div>';
-  html += '<div class="data-row data-sep"><label class="ghost" for="importFile" style="cursor:pointer;">Importa backup</label></div>';
+  html += '<div class="data-row"><label class="ghost" for="importFile" style="cursor:pointer;">Importa backup</label></div>';
   html += '<input type="file" id="importFile" accept=".txt,.json,.zip,text/plain,application/json,application/zip" onchange="handleImportFile(this.files[0])" />';
-  html += '<p class="hint" style="margin-top:8px;">Tornei archiviati: '+archive.length+' (ultimi '+ARCHIVE_MAX+')'+(getLastBackup() ? ' · ultimo backup: '+new Date(getLastBackup()).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : ' · nessun backup ancora')+(storagePersisted === true ? ' · memoria dell\'app protetta dal telefono' : (storagePersisted === false ? ' · memoria non protetta: fai il backup spesso' : ''))+'</p>';
-  html += '<p class="section-label" style="margin-top:14px;">Calcolo delle classifiche</p>';
-  html += '<div class="data-row"><label style="font-size:13.5px;">Conta i tornei dal <input type="date" value="'+esc(calc.from)+'" onchange="setCalcFrom(this.value)" /></label></div>';
-  html += '<div class="data-row"><label style="font-size:13.5px;">Rating di partenza <select onchange="setCalcBase(this.value)"><option value="set"'+(calc.base==='set'?' selected':'')+'>valore impostato</option><option value="1000"'+(calc.base==='1000'?' selected':'')+'>1000 per tutti</option></select></label></div>';
-  html += '<div class="data-row"><label style="font-size:13.5px;display:flex;align-items:center;gap:8px;"><input type="checkbox" '+(calc.recAll !== false ? 'checked' : '')+' onchange="setRecAll(this.checked)" style="width:18px;height:18px;" /> Serie e record: usa tutta la storia, anche prima della data di inizio</label></div>';
-  html += '<div class="data-row">'+winOnlyCheckboxHtml()+'</div>';
+  html += '<p class="hint" style="margin-top:8px;">Tornei archiviati: '+archive.length+' (ultimi '+ARCHIVE_MAX+')'+(lastBk ? ' · ultimo backup: '+new Date(lastBk).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : ' · nessun backup ancora')+(storagePersisted === true ? ' · memoria dell\'app protetta dal telefono' : (storagePersisted === false ? ' · memoria non protetta: fai il backup spesso' : ''))+'</p>';
+  // --- Excel
+  html += '<p class="data-sub">Excel</p>';
+  html += '<div class="data-row"><button class="ghost" onclick="exportExcel()">Esporta in Excel (.xlsx)</button><label class="ghost" for="importXlsx" style="cursor:pointer;">Importa da Excel</label><input type="file" id="importXlsx" accept=".xlsx" onchange="handleXlsxFile(this.files[0]); this.value=\'\'" style="display:none;" /></div>';
+  if(importUndo) html += '<div class="data-row"><button class="ghost" onclick="undoImport()">Annulla ultima importazione ('+esc(importUndo.file)+')</button></div>';
+  // --- Calcolo delle classifiche
+  html += '<p class="data-sub">Calcolo delle classifiche</p>';
+  html += '<div class="set-row"><span>Conta i tornei dal</span><input type="date" value="'+esc(calc.from)+'" onchange="setCalcFrom(this.value)" /></div>';
+  html += '<div class="set-row"><span>Rating di partenza</span><select onchange="setCalcBase(this.value)"><option value="set"'+(calc.base==='set'?' selected':'')+'>valore impostato</option><option value="1000"'+(calc.base==='1000'?' selected':'')+'>1000 per tutti</option></select></div>';
+  html += '<label class="set-check"><input type="checkbox" '+(calc.recAll !== false ? 'checked' : '')+' onchange="setRecAll(this.checked)" /> <span>Serie e record: usa tutta la storia, anche prima della data di inizio</span></label>';
+  html += winOnlyCheckboxHtml();
   html += '<p class="hint">Contano '+archive.filter(countsForRatings).length+' tornei su '+archive.length+'. Quelli prima della data restano in archivio ma non entrano in Elo, Glicko-2, % vittorie e classifica squadre. I giocatori congelati tengono il loro valore. Data vuota = conta tutto.</p>';
   if(dataMsg){ html += '<p class="hint" style="margin-top:8px;">'+dataMsg+'</p>'; }
   html += '</section>';
@@ -2410,7 +2425,7 @@ function moreTeams(){ teamShown += 25; const y = window.scrollY; render(); windo
 function setRecAll(on){ calc.recAll = !!on; saveCalc(); render(); }
 function setWinOnly(on){ calc.winOnly = !!on; applyCalc(); }
 function winOnlyCheckboxHtml(){
-  return '<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin:0 0 10px;"><input type="checkbox" '+(calc.winOnly ? 'checked' : '')+' onchange="setWinOnly(this.checked)" style="width:18px;height:18px;" /> Solo vittorie/sconfitte (ignora lo scarto di game)</label>';
+  return '<label class="set-check"><input type="checkbox" '+(calc.winOnly ? 'checked' : '')+' onchange="setWinOnly(this.checked)" /> <span>Solo vittorie/sconfitte (ignora lo scarto di game)</span></label>';
 }
 function setCalcBase(v){ calc.base = (v === '1000') ? '1000' : 'set'; applyCalc(); }
 
@@ -3889,7 +3904,8 @@ function g2Update(pl, games){
   return { mu: pl.mu + phiNew*phiNew*dSum, phi: Math.min(cap, phiNew), sigma: sigmaNew };
 }
 
-function computeGlicko(list, hook){
+function computeGlicko(list, hook, opts){
+  const scoreFn = (opts && opts.scoreFn) || gameScore;
   list = (list || archive).filter(countsForRatings);
   const byId = roster;  // la chiave della rubrica È l'id
   const P = {};
@@ -3906,7 +3922,7 @@ function computeGlicko(list, hook){
       const A = gm.idsA.map(get), B = gm.idsB.map(get);
       if(A.length === 0 || B.length === 0) return;
       if(hook) hook(A, B, gm, pi);
-      const S = gameScore(gm.s1, gm.s2, gm.tb);
+      const S = scoreFn(gm.s1, gm.s2, gm.tb);
       const muA = A.reduce((x,y)=>x+y.mu,0)/A.length, muB = B.reduce((x,y)=>x+y.mu,0)/B.length;
       const varOf = team => team.reduce((x,y)=>x+y.phi*y.phi,0);
       function addFor(own, opp, diff, sc){
@@ -4095,7 +4111,7 @@ function eloPredictions(opts){
   }}));
   return log;
 }
-function glickoPredictions(){
+function glickoPredictions(opts){
   const log = [];
   computeGlicko(archive, (A, B, gm, pi) => {
     const res = matchWinner(gm.s1, gm.s2, gm.tb);
@@ -4103,7 +4119,7 @@ function glickoPredictions(){
     const muA = A.reduce((x,y)=>x+y.mu,0)/A.length, muB = B.reduce((x,y)=>x+y.mu,0)/B.length;
     const v = (A.reduce((x,y)=>x+y.phi*y.phi,0) + B.reduce((x,y)=>x+y.phi*y.phi,0))/4;
     log.push({ p: 1/(1+Math.exp(-g2g(Math.sqrt(v))*(muA-muB))), y: res });
-  });
+  }, opts);
   return log;
 }
 function predictionStats(log){
@@ -4118,17 +4134,20 @@ function predictionStats(log){
   return { n, decisive, acc: decisive ? hit/decisive : null, brier: n ? brier/n : null, ll: n ? ll/n : null };
 }
 function diagView(){
+  // Tutte le varianti sono calcolate in modo esplicito: il confronto non cambia con la spunta "solo V/S" delle classifiche.
+  const inUse = calc.winOnly ? 'solo V/S' : 'scarto di game';
   const variants = [
-    ['Elo attuale', eloPredictions({})],
-    ['Elo, K dimezzato', eloPredictions({kScale:0.5})],
-    ['Elo, K doppio', eloPredictions({kScale:2})],
-    ['Elo, solo V/S', eloPredictions({scoreFn:scoreWL})],
-    ['Glicko-2', glickoPredictions()]
+    ['Elo, scarto di game', eloPredictions({scoreFn:marginScore}), !calc.winOnly],
+    ['Elo, scarto, K dimezzato', eloPredictions({scoreFn:marginScore, kScale:0.5})],
+    ['Elo, scarto, K doppio', eloPredictions({scoreFn:marginScore, kScale:2})],
+    ['Elo, solo V/S', eloPredictions({scoreFn:scoreWL}), !!calc.winOnly],
+    ['Glicko-2, scarto di game', glickoPredictions({scoreFn:marginScore}), !calc.winOnly],
+    ['Glicko-2, solo V/S', glickoPredictions({scoreFn:scoreWL}), !!calc.winOnly]
   ];
   const n = variants[0][1].length;
   const f3 = x => x === null ? '—' : x.toFixed(3).replace('.', ',');
   let html = '<section><p class="section-label">Diagnostica rating</p>';
-  html += '<p class="hint">Ogni partita, dal 2° torneo in poi, viene prevista con i rating di inizio torneo. Vince il sistema che sbaglia meno. Brier e log-loss: più basso è meglio. Tirare a caso dà 0,250 e 0,693.</p>';
+  html += '<p class="hint">Ogni partita, dal 2° torneo in poi, viene prevista con i rating di inizio torneo. Vince il sistema che sbaglia meno. Brier e log-loss: più basso è meglio. Tirare a caso dà 0,250 e 0,693. Il confronto è sempre completo, qualunque sia la spunta "solo V/S"; i sistemi oggi in uso nelle classifiche (<b>'+inUse+'</b>) sono segnati con ●.</p>';
   if(n < 20){
     html += '<p class="roster-empty">Partite valutabili: '+n+'. Servono più tornei: con meno di circa 40 partite le differenze sono rumore.</p>';
   } else if(n < 40){
@@ -4138,15 +4157,15 @@ function diagView(){
   }
   html += '<table><tr><th>Sistema</th><th class="num">Favorito</th><th class="num">Brier</th><th class="num">Log-loss</th></tr>';
   html += '<tr><td>Tirare a caso</td><td class="num">50%</td><td class="num">0,250</td><td class="num">0,693</td></tr>';
-  variants.forEach(([label, log]) => {
+  variants.forEach(([label, log, used]) => {
     const st = predictionStats(log);
-    html += '<tr><td>'+label+'</td><td class="num">'+(st.acc === null ? '—' : Math.round(st.acc*100)+'%')+'</td><td class="num">'+f3(st.brier)+'</td><td class="num">'+f3(st.ll)+'</td></tr>';
+    html += '<tr><td>'+label+(used ? ' ●' : '')+'</td><td class="num">'+(st.acc === null ? '—' : Math.round(st.acc*100)+'%')+'</td><td class="num">'+f3(st.brier)+'</td><td class="num">'+f3(st.ll)+'</td></tr>';
   });
   html += '</table>';
-  // calibrazione dell'Elo attuale: quando dice "70% per il favorito", il favorito vince davvero il 70%?
-  const cal = variants[0][1].filter(r => Math.abs(r.p-0.5) > 1e-9).map(r => r.p >= 0.5 ? { p:r.p, y:r.y } : { p:1-r.p, y:1-r.y });
+  // calibrazione dell'Elo in uso: quando dice "70% per il favorito", il favorito vince davvero il 70%?
+  const cal = variants[calc.winOnly ? 3 : 0][1].filter(r => Math.abs(r.p-0.5) > 1e-9).map(r => r.p >= 0.5 ? { p:r.p, y:r.y } : { p:1-r.p, y:1-r.y });
   const bins = [[0.5,0.6],[0.6,0.7],[0.7,0.8],[0.8,1.01]];
-  html += '<p class="section-label" style="margin-top:16px;">Calibrazione dell\'Elo attuale</p>';
+  html += '<p class="section-label" style="margin-top:16px;">Calibrazione dell\'Elo in uso ('+inUse+')</p>';
   html += '<table><tr><th>Previsione favorito</th><th class="num">Partite</th><th class="num">Previsto</th><th class="num">Reale</th></tr>';
   bins.forEach(([lo, hi]) => {
     const rows = cal.filter(r => r.p >= lo && r.p < hi);
