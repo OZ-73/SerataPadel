@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v58">
+<meta name="app-version" content="v59">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -289,7 +289,7 @@ function setRankMode(m){ rankMode = m; try{ localStorage.setItem(LS_RANK_MODE, m
 
 function normalizeTournament(obj){
   obj = sanitizeDeep(obj);
-  const base = { phase:'setup', venue:'', courts:3, maxRounds:3, teams:[], round:0, played:[], currentMatches:[], history:[], restCounts:{}, courtCounts:{}, sideCounts:{}, lastMeetingCourt:{}, lastMeetingSide:{}, unofficial:false, useClassicSchedule:false, classicSchedule:null, restingThisRound:[], extras:[] };
+  const base = { phase:'setup', venue:'', allowRepeats:false, courts:3, maxRounds:3, teams:[], round:0, played:[], currentMatches:[], history:[], restCounts:{}, courtCounts:{}, sideCounts:{}, lastMeetingCourt:{}, lastMeetingSide:{}, unofficial:false, useClassicSchedule:false, classicSchedule:null, restingThisRound:[], extras:[] };
   const merged = Object.assign({}, base, obj||{});
   merged.teams.forEach(tm => {
     if(tm.wins===undefined) tm.wins = 0;
@@ -862,6 +862,51 @@ function strengthMap(){
   computeGlicko().forEach(r => { m[r.id] = r.rating; });
   return m;
 }
+// Formazioni scelte prima dell'inizio (per deciderle con i coordinatori): squadre, giocatori e forza col metodo selezionato (Elo / Glicko-2).
+function shareFormations(){
+  const gm = strengthMap(), label = suggestBy === 'glicko' ? 'Glicko-2' : 'Elo';
+  const full = draftTeams.filter(dt => dt.p1 && dt.p1.trim() && dt.p2 && dt.p2.trim());
+  if(!full.length){ setTeamMsg('Nessuna squadra completa da condividere.'); return; }
+  let text = '🎾 *FORMAZIONI TORNEO PADEL*\n📅 ' + new Date().toLocaleDateString('it-IT', { day:'numeric', month:'long', year:'numeric' }) + '\n';
+  if(t.venue) text += '📍 ' + t.venue + '\n';
+  text += '💪 Forza squadra: media ' + label + ' dei due giocatori\n\n';
+  const vals = [];
+  full.forEach(dt => {
+    const st = draftTeamStrength(dt, gm); vals.push(st);
+    text += '*Squadra ' + (dt.id + 1) + '* · forza ' + Math.round(st) + '\n';
+    text += 'Sx ' + dt.p1 + ' (' + Math.round(strengthOfName(dt.p1, gm)) + ') · Dx ' + dt.p2 + ' (' + Math.round(strengthOfName(dt.p2, gm)) + ')\n\n';
+  });
+  if(vals.length >= 2) text += 'Differenza tra la più forte e la più debole: ' + Math.round(Math.max(...vals) - Math.min(...vals)) + ' punti.\n';
+  shareText(text.trim(), 'Formazioni torneo');
+}
+// Squadre suggerite dall'app e versione modificata a mano: si può alternare per confrontarle.
+let draftSugg = null, draftManual = null;
+const cloneDraft = arr => arr.map(d => ({ p1:d.p1, p2:d.p2 }));
+const draftSig = arr => arr.map(d => (d.p1 || '') + '|' + (d.p2 || '')).sort().join(';');
+function draftSpread(arr, gm){
+  const v = arr.filter(d => d.p1 && d.p1.trim() && d.p2 && d.p2.trim()).map(d => draftTeamStrength(d, gm));
+  return v.length >= 2 ? Math.max(...v) - Math.min(...v) : null;
+}
+function draftRestoreHtml(){
+  if(!draftSugg) return '';
+  const cur = draftSig(draftTeams), sg = draftSig(draftSugg);
+  let btn = '', other = null;
+  if(cur !== sg){ btn = '<button class="ghost" style="margin-bottom:8px;" onclick="restoreDraftSuggested()">↺ Ripristina i suggeriti</button>'; other = draftTeams; }
+  else if(draftManual && draftSig(draftManual) !== sg){ btn = '<button class="ghost" style="margin-bottom:8px;" onclick="restoreDraftManual()">↻ Torna alla mia versione</button>'; other = draftManual; }
+  if(!btn) return '';
+  const gm = strengthMap(), a = draftSpread(draftSugg, gm), b = draftSpread(other, gm), label = suggestBy === 'glicko' ? 'Glicko-2' : 'Elo';
+  return btn + ((a !== null && b !== null) ? '<p class="hint" style="margin:0 0 8px;">Differenza tra la squadra più forte e la più debole ('+label+'): suggeriti '+Math.round(a)+' · tua versione '+Math.round(b)+'.</p>' : '');
+}
+function draftApply(arr){ draftTeams = arr.map((d, i) => ({ id:i, p1:d.p1, p2:d.p2 })); suggestNote = ''; lastSuggest = null; render(); }
+function restoreDraftSuggested(){
+  if(!draftSugg) return;
+  const names = Array.from(selected).filter(k => roster[k]).map(k => roster[k].name);
+  const missing = [].concat(...draftSugg.map(d => [d.p1, d.p2])).filter(n => n && !names.includes(n));
+  if(missing.length){ setTeamMsg('Non posso ripristinare: '+Array.from(new Set(missing)).join(', ')+' non è più tra i selezionati.'); return; }
+  draftManual = cloneDraft(draftTeams);
+  draftApply(draftSugg);
+}
+function restoreDraftManual(){ if(draftManual) draftApply(draftManual); }
 function suggestPairings(){
   const ids = Array.from(selected).filter(k => roster[k]);
   const names = ids.map(k => roster[k].name);
@@ -957,12 +1002,19 @@ function suggestPairings(){
     suggestNote = 'Coppie generate per '+label+'.';
   }
   lastSuggest = { by: suggestBy, sig };
+  draftSugg = cloneDraft(draftTeams); draftManual = null;
   render();
 }
 // Squadre fisse: sempre da 2 giocatori, almeno 4 squadre (8 partecipanti), numero di partecipanti pari.
 function selectedCount(){ return Array.from(selected).filter(k => roster[k]).length; }
+function minTeams(){ return t && t.allowRepeats ? 3 : 4; }
+function setAllowRepeats(on){ t.allowRepeats = !!on; saveTournament(); render(); }
+function repeatsCheckboxHtml(){
+  return '<label class="set-check" style="margin-top:12px;"><input type="checkbox" '+(t.allowRepeats ? 'checked' : '')+' onchange="setAllowRepeats(this.checked)" /> <span>Consenti incontri ripetuti (rivincite): bastano 3 squadre e gli abbinamenti seguono la forza anche se si ripetono</span></label>';
+}
 function teamSelectionError(n){
-  if(n < 8) return 'Per le squadre fisse servono almeno 8 partecipanti (4 squadre da 2): ne hai selezionati '+n+'.';
+  const mt = minTeams();
+  if(n < mt*2) return 'Per le squadre fisse servono almeno '+(mt*2)+' partecipanti ('+mt+' squadre da 2): ne hai selezionati '+n+'.';
   if(n % 2 === 1) return 'Hai selezionato '+n+' partecipanti: per le squadre fisse serve un numero pari, aggiungine o toglierne uno.';
   return '';
 }
@@ -973,7 +1025,7 @@ function setTeamMsg(msg){
 function addEmptyTeam(){
   const n = selectedCount();
   let msg = '';
-  if(n < 8) msg = 'Prima seleziona almeno 8 partecipanti dalla rubrica (ora '+n+'): servono almeno 4 squadre da 2.';
+  if(n < minTeams()*2) msg = 'Prima seleziona almeno '+(minTeams()*2)+' partecipanti dalla rubrica (ora '+n+'): servono almeno '+minTeams()+' squadre da 2.';
   else if(draftTeams.length >= Math.floor(n/2)) msg = 'Tutti i partecipanti selezionati sono già in una squadra: selezionane altri dalla rubrica.';
   if(msg){ setTeamMsg(msg); return; }
   draftTeams.push({ id: draftTeams.length, p1:'', p2:'' }); suggestNote = ''; lastSuggest = null; render();
@@ -1018,7 +1070,7 @@ function startTournament(){
   if(incompleteTeam){ document.getElementById('setupErr').textContent = 'La Squadra '+(incompleteTeam.id+1)+' è incompleta: servono due giocatori (oppure rimuovila).'; return; }
   if(!t.courts || t.courts < 1){ document.getElementById('setupErr').textContent = 'Indica quanti campi avete.'; return; }
   if(!t.maxRounds || t.maxRounds < 1){ document.getElementById('setupErr').textContent = 'Indica quanti turni volete giocare.'; return; }
-  if(valid.length < 4){ document.getElementById('setupErr').textContent = 'Servono almeno 4 squadre.'; return; }
+  if(valid.length < minTeams()){ document.getElementById('setupErr').textContent = 'Servono almeno '+minTeams()+' squadre.'; return; }
   document.getElementById('setupErr').textContent = '';
 
   const gmStart = strengthMap();
@@ -1032,8 +1084,8 @@ function startTournament(){
   teams.forEach((tm,i) => { tm.id = i; delete tm._str; });
   saveRoster();
 
-  const courts = t.courts, maxRounds = t.maxRounds, unofficial = !!t.unofficial, venue = cleanVenue(t.venue);
-  t = { phase:'playing', venue, courts, maxRounds, unofficial, teams, round:0, played:[], currentMatches:[], history:[], restCounts:{}, courtCounts:{}, sideCounts:{}, extras:[] };
+  const courts = t.courts, maxRounds = t.maxRounds, unofficial = !!t.unofficial, venue = cleanVenue(t.venue), allowRepeats = !!t.allowRepeats;
+  t = { phase:'playing', venue, courts, maxRounds, unofficial, allowRepeats, teams, round:0, played:[], currentMatches:[], history:[], restCounts:{}, courtCounts:{}, sideCounts:{}, extras:[] };
   extraDraft = null;
   roundDraft = {};
   pairEdit = null;
@@ -1045,13 +1097,14 @@ function startTournament(){
   });
 
   const n = teams.length;
-  if(n % 2 === 0 && courts >= n/2 && maxRounds === n-1){
+  if(n % 2 === 0 && courts >= n/2 && maxRounds === n-1 && !allowRepeats){
     t.useClassicSchedule = true;
     // Con id già ordinati per forza: 1° turno = 1°vs ultimo, 2°vs penultimo, …
     t.classicSchedule = classicSchedule(teams.map(tm=>tm.id));
   }
   saveTournament();
   draftTeams = [];
+  draftSugg = null; draftManual = null;
   suggestNote = ''; lastSuggest = null;
   render();
 }
@@ -1059,6 +1112,7 @@ function startTournament(){
 // ---------- playing phase ----------
 
 function bestMatching(teamsList){
+  const noRep = !!t.allowRepeats;   // con gli incontri ripetuti ammessi si guarda solo l'equilibrio
   const poolIds = teamsList.map(x=>x.id);
   const winsOf = {}; teamsList.forEach(tm => winsOf[tm.id] = tm.wins);
   let best = null, bestCost = Infinity, nodeCount = 0;
@@ -1070,13 +1124,13 @@ function bestMatching(teamsList){
     const a = remaining[0];
     const rest = remaining.slice(1);
     const ordered = [...rest].sort((x,y) => {
-      const rx = t.played.includes(pairKey(a,x)) ? 1 : 0;
-      const ry = t.played.includes(pairKey(a,y)) ? 1 : 0;
+      const rx = (!noRep && t.played.includes(pairKey(a,x))) ? 1 : 0;
+      const ry = (!noRep && t.played.includes(pairKey(a,y))) ? 1 : 0;
       if(rx !== ry) return rx - ry;
       return Math.abs(winsOf[x]-winsOf[a]) - Math.abs(winsOf[y]-winsOf[a]);
     });
     for(const b of ordered){
-      const rep = t.played.includes(pairKey(a,b)) ? 1 : 0;
+      const rep = (!noRep && t.played.includes(pairKey(a,b))) ? 1 : 0;
       const dist = Math.abs(winsOf[b]-winsOf[a]);
       const newCost = cost + rep*10000 + dist;
       if(newCost >= bestCost) continue;
@@ -1099,7 +1153,7 @@ function greedyMatching(poolIds){
     for(let j=i+1;j<poolIds.length;j++){
       const b = poolIds[j];
       if(used.has(b)) continue;
-      if(!t.played.includes(pairKey(a,b))){ opp = b; break; }
+      if(t.allowRepeats || !t.played.includes(pairKey(a,b))){ opp = b; break; }
     }
     if(opp===null){
       for(let j=i+1;j<poolIds.length;j++){ const b = poolIds[j]; if(!used.has(b)){ opp = b; break; } }
@@ -1241,6 +1295,7 @@ function generateRound(){
     t.restingThisRound = [];
     roundDraft = {};
     pairEdit = null;
+    snapshotSuggestion();
     saveTournament();
     render();
     return;
@@ -1281,6 +1336,7 @@ function generateRound(){
   t.restingThisRound = restIds;
   roundDraft = {};
   pairEdit = null;
+  snapshotSuggestion();
   saveTournament();
   render();
 }
@@ -1498,8 +1554,63 @@ function fixedTeamSelect(court, side, teams){
   });
   return html + '</select>';
 }
-function applyPairEdit(){
-  const err = document.getElementById('pairEditErr');
+// Abbinamenti del turno: suggeriti dall'app / modificati a mano, con la possibilità di alternare per confrontarli.
+function snapshotSuggestion(){
+  t.sugg = { round: t.round, matches: JSON.parse(JSON.stringify(t.currentMatches)) };
+  delete t.manualAlt;
+}
+function roundSig(matches){
+  return (matches || []).map(m => Array.isArray(m) ? [m[0], m[1]].sort().join('-') : [m.pa.slice().sort().join('+'), m.pb.slice().sort().join('+')].sort().join('-')).sort().join(';');
+}
+function roundImbalance(matches, gm){
+  let sum = 0;
+  (matches || []).forEach(m => {
+    let a, b;
+    if(Array.isArray(m)){
+      const ta = t.teams.find(x => x.id === m[0]), tb = t.teams.find(x => x.id === m[1]);
+      a = ta ? teamStrengthNames(ta.players, gm) : null; b = tb ? teamStrengthNames(tb.players, gm) : null;
+    } else { a = teamStrengthIds(m.pa, gm); b = teamStrengthIds(m.pb, gm); }
+    if(a !== null && b !== null) sum += Math.abs(a - b);
+  });
+  return sum;
+}
+function recordManualAlt(){
+  if(t.sugg && t.sugg.round === t.round && roundSig(t.currentMatches) !== roundSig(t.sugg.matches)){
+    t.manualAlt = { round: t.round, matches: JSON.parse(JSON.stringify(t.currentMatches)) };
+  }
+}
+function roundMatchesUsable(matches){
+  if(!matches || !matches.length) return false;
+  if(isRotatingMode()) return matches.length === t.currentMatches.length && matches.every(m => m.pa.concat(m.pb).every(id => t.players.includes(id)));
+  const act = activeTeams().map(x => x.id);
+  return matches.every(m => act.includes(m[0]) && act.includes(m[1]));
+}
+function applyRoundMatches(matches){
+  if(isRotatingMode()) pairEdit = { type:'rotating', courts: matches.map(m => ({ pa:m.pa.slice(), pb:m.pb.slice() })) };
+  else pairEdit = { type:'fixed', courts: matches.map(m => ({ a:m[0], b:m[1] })) };
+  applyPairEdit(true);
+}
+function restoreRoundSuggested(){
+  if(!t.sugg || t.sugg.round !== t.round || !roundMatchesUsable(t.sugg.matches)) return;
+  t.manualAlt = { round: t.round, matches: JSON.parse(JSON.stringify(t.currentMatches)) };
+  applyRoundMatches(t.sugg.matches);
+}
+function restoreRoundManual(){
+  if(!t.manualAlt || t.manualAlt.round !== t.round || !roundMatchesUsable(t.manualAlt.matches)) return;
+  applyRoundMatches(t.manualAlt.matches);
+}
+function roundRestoreHtml(){
+  if(!t.sugg || t.sugg.round !== t.round || !(t.currentMatches || []).length) return '';
+  const cur = roundSig(t.currentMatches), sg = roundSig(t.sugg.matches);
+  let btn = '', other = null;
+  if(cur !== sg){ btn = '<button class="ghost" style="margin-bottom:10px;" onclick="restoreRoundSuggested()">↺ Ripristina i suggeriti</button>'; other = t.currentMatches; }
+  else if(t.manualAlt && t.manualAlt.round === t.round && roundSig(t.manualAlt.matches) !== sg){ btn = '<button class="ghost" style="margin-bottom:10px;" onclick="restoreRoundManual()">↻ Torna alla mia versione</button>'; other = t.manualAlt.matches; }
+  if(!btn) return '';
+  const gm = strengthMap(), label = suggestBy === 'glicko' ? 'Glicko-2' : 'Elo';
+  return btn + '<p class="hint" style="margin:0 0 10px;">Squilibrio di forza ('+label+', somma delle differenze tra le due parti di ogni partita): suggeriti '+Math.round(roundImbalance(t.sugg.matches, gm))+' · tua versione '+Math.round(roundImbalance(other, gm))+'. Ripristinando, i punteggi già digitati in questo turno si azzerano.</p>';
+}
+function applyPairEdit(fromRestore){
+  const err = document.getElementById('pairEditErr') || { textContent:'' };
   if(!pairEdit) return;
   if(pairEdit.type === 'fixed'){
     const courts = pairEdit.courts;
@@ -1539,6 +1650,7 @@ function applyPairEdit(){
   }
   pairEdit = null;
   roundDraft = {};
+  if(!fromRestore) recordManualAlt();
   saveTournament();
   render();
 }
@@ -1801,7 +1913,7 @@ function exportSheets(){
     ['Partite: i giocatori di ogni squadra vanno scritti nell\'ordine Sx, Dx. I nomi devono coincidere con quelli del foglio Giocatori.'],
     ['Il tie-break (TB) si compila solo sul 6-6. Peso delle partite extra: 1 = piena, 0,5 = ridotta, 0 = non conta per i rating.'],
     ['I fogli con "(sola lettura)" sono solo da consultare: chi importa il file li ignora.'],
-    ['Modalità: Squadre fisse, Americano o Messicano. Se la cambi per un torneo già in archivio, il torneo viene convertito (Squadre fisse richiede almeno 4 squadre con compagni sempre uguali). Se la lasci vuota: torneo esistente = resta com\'è; torneo nuovo = Squadre fisse se le coppie lo permettono, altrimenti Americano.'],
+    ['Modalità: Squadre fisse, Americano o Messicano. Se la cambi per un torneo già in archivio, il torneo viene convertito (Squadre fisse richiede almeno 3 squadre con compagni sempre uguali; una sostituzione con un giocatore nuovo va bene). Se la lasci vuota: torneo esistente = resta com\'è; torneo nuovo = Squadre fisse se le coppie lo permettono, altrimenti Americano.'],
     ['Escluso: SI = il torneo resta in archivio ma non entra nei calcoli. Per i tornei già in archivio, un foglio mancante (Tornei, Partite o Extra) non modifica quella parte; se il foglio Extra c\'è, è l\'elenco completo delle extra.'],
     [''],
     ['Foglio Comandi: si eseguono dopo l\'importazione dei dati, nell\'ordine delle righe; l\'anteprima mostra l\'effetto prima di applicare.'],
@@ -1809,6 +1921,7 @@ function exportSheets(){
     ['DATA INIZIO CALCOLI | data (vuoto = tutti i tornei)   ·   RATING DI PARTENZA | valore impostato oppure 1000   ·   SERIE E RECORD | tutta la storia oppure dalla data di inizio'],
     ['RATING INIZIALE | giocatore | valore   ·   CONGELA, SCONGELA, NASCONDI, MOSTRA | giocatore   ·   RINOMINA GIOCATORE | vecchio | nuovo'],
     ['SOLO VITTORIE E SCONFITTE | SI oppure NO (Elo e Glicko-2 ignorano lo scarto di game)   ·   SOGLIA VITTORIA | da 0,6 a 0,95, predefinito 0,75 (più è alta, meno conta lo scarto di game)'],
+    ['Il foglio Comandi contiene già le impostazioni di calcolo di quando hai esportato (data inizio, rating di partenza, serie e record, solo V/S, soglia): importando il file vengono riapplicate. Cancella le righe che non vuoi ripristinare. Anche il backup contiene queste impostazioni.'],
     ['L\'esportazione lascia il foglio Comandi vuoto: svuotalo anche tu dopo l\'uso, per non rieseguire gli stessi comandi.']
   ] });
   sheets.push({ name:'Giocatori', freeze:true, filter:true, widths:[24,16,12,12,8],
@@ -1829,7 +1942,14 @@ function exportSheets(){
     lists:[{ sqref:'C2:F5000', formula:'Giocatori!$A$2:$A$300' }] });
   sheets.push({ name:'Extra', freeze:true, filter:true, widths:[14,18,18,18,18,9,9,7,7,7], rows:extra,
     lists:[{ sqref:'B2:E5000', formula:'Giocatori!$A$2:$A$300' }] });
-  sheets.push({ name:'Comandi', freeze:true, widths:[28,18,18,40], rows:[['Comando','Valore 1','Valore 2','Note']] });
+  // Le impostazioni di calcolo correnti sono già scritte come comandi: importando il file vengono riapplicate (cancella le righe che non vuoi ripristinare).
+  const nota = 'Impostazione al momento dell\'esportazione';
+  sheets.push({ name:'Comandi', freeze:true, widths:[28,18,18,40], rows:[['Comando','Valore 1','Valore 2','Note'],
+    ['DATA INIZIO CALCOLI', calc.from || '', '', nota],
+    ['RATING DI PARTENZA', calc.base === '1000' ? '1000' : 'valore impostato', '', nota],
+    ['SERIE E RECORD', calc.recAll !== false ? 'tutta la storia' : 'dalla data di inizio', '', nota],
+    ['SOLO VITTORIE E SCONFITTE', calc.winOnly ? 'SI' : 'NO', '', nota],
+    ['SOGLIA VITTORIA', String(winFloor()).replace('.', ','), '', nota]] });
   const gl = {}; computeGlicko().forEach(r => { gl[r.id] = r.rating; });
   const ids = Object.keys(roster).filter(id => roster[id].matches > 0).sort((x,y) => roster[y].elo - roster[x].elo || roster[x].name.localeCompare(roster[y].name));
   sheets.push({ name:'Classifica (sola lettura)', freeze:true, widths:[24,10,10,10,10],
@@ -2041,15 +2161,34 @@ function buildImportPlan(sheets, fileName){
 
   // Confronto con l'archivio
   const keys = tournamentKeys();
-  // Squadre fisse solo se ci sono almeno 4 coppie e ogni giocatore ha sempre lo stesso compagno.
-  const pairShape = rounds => {
-    const pairs = new Set(), partner = {}; let ok = true;
-    rounds.forEach(h => h.matches.forEach(m => [[m.names[0], m.names[1]], [m.names[2], m.names[3]]].forEach(pr => {
-      const x = normName(pr[0]), y = normName(pr[1]);
-      pairs.add([x, y].sort().join('+'));
-      [[x, y], [y, x]].forEach(q => { if(partner[q[0]] === undefined) partner[q[0]] = q[1]; else if(partner[q[0]] !== q[1]) ok = false; });
-    })));
-    return { teams: pairs.size, fixedOk: ok && pairs.size >= 4 };
+  // Squadre fisse: ogni squadra è un "posto" di due giocatori. Una sostituzione (un giocatore mai visto prima al posto di uno che non gioca più)
+  // lascia la squadra la stessa; se invece i compagni si scambiano tra giocatori già in gara è un Americano. Servono almeno 3 squadre.
+  const analyzeTeams = rounds => {
+    const first = {}, last = {};
+    rounds.forEach(h => h.matches.forEach(m => m.names.forEach(n => { const k = normName(n); if(first[k] === undefined) first[k] = h.round; last[k] = h.round; })));
+    const slots = [], slotOf = {};
+    let ok = true;
+    rounds.forEach(h => h.matches.forEach(m => {
+      const idxs = [[m.names[0], m.names[1]], [m.names[2], m.names[3]]].map(pr => {
+        const n1 = pr[0], n2 = pr[1], k1 = normName(n1), k2 = normName(n2), s1 = slotOf[k1], s2 = slotOf[k2];
+        if(s1 === undefined && s2 === undefined){
+          if(first[k1] < h.round || first[k2] < h.round){ ok = false; return 0; }   // uno dei due era già uscito e rientra: non è una squadra nuova
+          slots.push({ players:[n1, n2], subs:[] }); slotOf[k1] = slotOf[k2] = slots.length - 1; return slots.length - 1;
+        }
+        if(s1 !== undefined && s1 === s2) return s1;
+        if(s1 !== undefined && s2 !== undefined){ ok = false; return s1; }
+        const known = s1 !== undefined ? s1 : s2, kNew = s1 !== undefined ? k2 : k1, nNew = s1 !== undefined ? n2 : n1, kKnown = s1 !== undefined ? k1 : k2;
+        const sl = slots[known], at = sl.players.findIndex(x => normName(x) === kKnown), old = sl.players[1 - at], kOld = normName(old);
+        if(first[kNew] === h.round && last[kOld] < h.round){
+          sl.subs.push({ from:h.round, out:old, in:nNew }); sl.players[1 - at] = nNew;
+          delete slotOf[kOld]; slotOf[kNew] = known;
+          return known;
+        }
+        ok = false; return known;
+      });
+      m.sa = idxs[0]; m.sb = idxs[1];
+    }));
+    return { ok: ok && slots.length >= 3, slots };
   };
   const modeName = m => m === 'fixed' ? 'Squadre fisse' : m.charAt(0).toUpperCase() + m.slice(1);
   const roundsFromRows = rows => {
@@ -2063,24 +2202,26 @@ function buildImportPlan(sheets, fileName){
     const idx = keys.indexOf(k), cur = idx >= 0 ? archive[idx] : null, curMode = cur ? (cur.mode || 'fixed') : null;
     let rounds = Object.keys(sp.rounds).map(Number).sort((x,y) => x-y).map(n => ({ round:n, matches:sp.rounds[n] }));
     // Modalità: quella scritta nel foglio Tornei; se manca, quella del torneo già in archivio; per un torneo nuovo, Squadre fisse solo se le coppie lo permettono.
+    let an = analyzeTeams(rounds);
     let mode;
     if(mt.hasMode) mode = mt.mode;
     else if(cur) mode = curMode;
     else {
-      mode = pairShape(rounds).fixedOk ? 'fixed' : 'americano';
-      plan.warnings.push('Torneo '+k+': modalità non indicata, creato come '+modeName(mode)+(mode === 'fixed' ? '' : ' (squadre insufficienti o compagni che cambiano)')+'.');
+      mode = an.ok ? 'fixed' : 'americano';
+      const nSubs = an.ok ? an.slots.reduce((n, sl) => n + sl.subs.length, 0) : 0;
+      plan.warnings.push('Torneo '+k+': modalità non indicata, creato come '+modeName(mode)+(mode === 'fixed' ? (nSubs ? ' (rilevate '+nSubs+' sostituzioni)' : '') : ' (squadre insufficienti o compagni che cambiano)')+'.');
     }
     const modeChanged = !!cur && mode !== curMode;
     // Torneo già in archivio: ciò che manca nel file resta com'è (turni senza righe in Partite, extra se manca il foglio Extra)
     let keepRounds = false;
     if(cur && rounds.length === 0){
-      if(modeChanged) rounds = roundsFromRows(matchRowsOf(cur).partite);   // per convertire servono le partite: si prendono dall'archivio
+      if(modeChanged){ rounds = roundsFromRows(matchRowsOf(cur).partite); an = analyzeTeams(rounds); }   // per convertire servono le partite: si prendono dall'archivio
       else keepRounds = true;
     }
-    if(modeChanged && mode === 'fixed' && !pairShape(rounds).fixedOk){ err('Tornei', 0, 'il torneo '+k+' non può diventare a Squadre fisse: servono almeno 4 squadre e ogni giocatore deve avere sempre lo stesso compagno'); return; }
+    if(modeChanged && mode === 'fixed' && !an.ok){ err('Tornei', 0, 'il torneo '+k+' non può diventare a Squadre fisse: servono almeno 3 squadre e ogni giocatore deve avere sempre lo stesso compagno (una sostituzione con un giocatore nuovo va bene)'); return; }
     const keepExtras = !!cur && (!hasExtraSheet || !!sp.metaOnly);
     const maxPerRound = Math.max(1, ...rounds.map(h => h.matches.length));
-    const op = { key:k, date:sp.date, mode, courts: mt.courts || Math.max((cur && cur.courts) || 0, maxPerRound), excluded: mt.hasExcluded ? mt.excluded : !!(cur && cur.excluded), hasExcluded:mt.hasExcluded, venue:mt.venue, rounds, keepRounds, keepExtras, extras:sp.extras, nM: rounds.reduce((n,h) => n+h.matches.length, 0), nE: sp.extras.length, convert: modeChanged ? { from:curMode, to:mode } : null };
+    const op = { key:k, date:sp.date, mode, courts: mt.courts || Math.max((cur && cur.courts) || 0, maxPerRound), excluded: mt.hasExcluded ? mt.excluded : !!(cur && cur.excluded), hasExcluded:mt.hasExcluded, venue:mt.venue, rounds, keepRounds, keepExtras, slots: (mode === 'fixed' && an.ok) ? an.slots : null, extras:sp.extras, nM: rounds.reduce((n,h) => n+h.matches.length, 0), nE: sp.extras.length, convert: modeChanged ? { from:curMode, to:mode } : null };
     if(!cur){ op.type = 'add'; }
     else {
       const curRows = matchRowsOf(cur);
@@ -2208,6 +2349,15 @@ function entryFromSpec(op, old){
   e.history = [];
   if(op.mode === 'fixed'){
     e.teams = [];
+    const nmOf0 = n => { const id = idOf(n); return roster[id] ? roster[id].name : n; };
+    if(op.slots){
+      op.slots.forEach(sl => {
+        const tm = { name: sl.players.map(nmOf0).join(' & '), playerIds: sl.players.map(idOf), wins:0, setsWon:0, setsLost:0 };
+        if(sl.subs.length) tm.subs = sl.subs.map(sb => ({ from:sb.from, out:nmOf0(sb.out), in:nmOf0(sb.in) }));
+        e.teams.push(tm);
+      });
+    }
+    const nmOf0b = i => roster[i] ? roster[i].name : i;
     const tIdx = {};
     const teamOf = ids => {
       const k = ids.slice().sort().join('+');
@@ -2215,8 +2365,8 @@ function entryFromSpec(op, old){
       return tIdx[k];
     };
     op.rounds.forEach(h => e.history.push({ round:h.round, resting:[], matches: h.matches.map((m, ci) => {
-      const pa = [idOf(m.names[0]), idOf(m.names[1])], pb = [idOf(m.names[2]), idOf(m.names[3])], aId = teamOf(pa), bId = teamOf(pb);
-      const o = { aId, bId, a:e.teams[aId].name, b:e.teams[bId].name, s1:m.s1, s2:m.s2, court:ci, pa, pb, sides:{ a:pa.slice(), b:pb.slice() } };
+      const pa = [idOf(m.names[0]), idOf(m.names[1])], pb = [idOf(m.names[2]), idOf(m.names[3])], aId = op.slots ? m.sa : teamOf(pa), bId = op.slots ? m.sb : teamOf(pb);
+      const o = { aId, bId, a:op.slots ? pa.map(nmOf0b).join(' & ') : e.teams[aId].name, b:op.slots ? pb.map(nmOf0b).join(' & ') : e.teams[bId].name, s1:m.s1, s2:m.s2, court:ci, pa, pb, sides:{ a:pa.slice(), b:pb.slice() } };
       if(m.tb) o.tb = m.tb;
       return o;
     }) }));
@@ -2359,7 +2509,7 @@ function importPreviewHtml(){
     if(p.playerChanges.length) h += '<li>Giocatori modificati: '+esc(list(p.playerChanges, 5))+'</li>';
     if((p.cmds || []).length) h += '<li>Comandi ('+p.cmds.length+'):<ul style="padding-left:16px;">'+p.cmds.map(c => '<li'+(c.del && c.n ? ' style="font-weight:600;"' : '')+'>'+esc(c.text)+(c.n ? '' : ' <span style="opacity:.7;">(nessun effetto)</span>')+'</li>').join('')+'</ul></li>';
     h += '</ul>';
-    if(of('update').length) h += '<p class="hint" style="margin:0 0 8px;">Nei tornei aggiornati le partite e le extra presenti nel file vengono riscritte come nel file (ritiri e sostituzioni registrati in app si perdono). Ciò che nel file manca (foglio Tornei, Partite o Extra) non viene toccato.</p>';
+    if(of('update').length) h += '<p class="hint" style="margin:0 0 8px;">Nei tornei aggiornati le partite e le extra presenti nel file vengono riscritte come nel file: le sostituzioni si ricostruiscono dalle partite, i ritiri registrati in app si perdono. Ciò che nel file manca (foglio Tornei, Partite o Extra) non viene toccato.</p>';
   }
   if(p.warnings.length) h += '<p class="hint" style="margin:0 0 8px;"><b>Attenzione:</b> '+p.warnings.slice(0, 8).map(esc).join(' · ')+'</p>';
   const changes = of('add').length + of('update').length + of('flag').length + p.playerUpdates.length + (p.cmds || []).filter(c => c.n > 0).length;
@@ -3632,6 +3782,7 @@ function generateRotatingRound(){
   t.restingThisRound = restIds;
   roundDraft = {};
   pairEdit = null;
+  snapshotSuggestion();
   saveTournament();
   render();
 }
@@ -5145,10 +5296,12 @@ function renderMain(){
       html += '<label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13.5px;"><input type="checkbox" '+(varyPairs?'checked':'')+' onchange="setVaryPairs(this.checked)" style="width:18px;height:18px;accent-color:var(--ball);flex-shrink:0;" /> Un po\' di casualità (giocatori di forza simile si scambiano)</label>';
       html += '<label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13.5px;"><input type="checkbox" '+(ignoreSides?'checked':'')+' onchange="setIgnoreSides(this.checked)" style="width:18px;height:18px;accent-color:var(--ball);flex-shrink:0;" /> Ignora Sx/Dx dichiarati</label>';
       const selN = selectedCount(), selBad = teamSelectionError(selN);
-      html += '<p class="hint" style="margin-top:12px;'+(selBad ? 'color:var(--danger);font-weight:600;' : '')+'">Selezionati: '+selN+' · servono almeno 8 partecipanti, in numero pari (squadre da 2).</p>';
+      html += repeatsCheckboxHtml();
+      html += '<p class="hint" style="margin-top:12px;'+(selBad ? 'color:var(--danger);font-weight:600;' : '')+'">Selezionati: '+selN+' · servono almeno '+(minTeams()*2)+' partecipanti, in numero pari (squadre da 2).</p>';
       html += '<button class="secondary" onclick="suggestPairings()">Suggerisci abbinamenti</button>';
       html += '<button class="ghost" onclick="addEmptyTeam()">Oppure crea una squadra a mano</button>';
       html += '<p class="err" id="teamAddErr"></p>';
+      if(draftTeams.length === 0) html += draftRestoreHtml();
       if(draftTeams.length === 0){ html += '<p class="err" id="setupErr"></p>'; }
       html += '</section>';
     } else {
@@ -5179,6 +5332,7 @@ function renderMain(){
         html += '<p class="hint"><b>Forza media delle squadre ('+methodLabel+'):</b> da '+Math.round(sMin)+' a '+Math.round(sMax)+' &middot; differenza tra la più forte e la più debole: '+Math.round(sMax-sMin)+' punti.</p>';
       }
       if(suggestNote){ html += '<p class="hint"><b>'+esc(suggestNote)+'</b></p>'; }
+      html += draftRestoreHtml();
       html += '<p class="hint">Scegli un nome già assegnato altrove per scambiarlo con quello attuale.</p>';
       draftTeams.forEach(dt => {
         html += '<div class="team-card"><div class="team-card-head"><p class="section-label">Squadra '+(dt.id+1)+'</p><button class="small" onclick="removeTeam('+dt.id+')">Rimuovi</button></div>';
@@ -5205,7 +5359,7 @@ function renderMain(){
         }
         html += '</div>';
       });
-      html += '<button class="ghost" onclick="addEmptyTeam()">Aggiungi un\'altra squadra</button>';
+      html += '<div class="data-row"><button class="ghost" onclick="addEmptyTeam()">Aggiungi un\'altra squadra</button><button class="ghost" onclick="shareFormations()">Condividi formazioni</button></div>';
       html += '</section>';
 
       html += '<section><p class="section-label">Serata</p>'+venueFieldHtml()+'<div class="row2">';
@@ -5215,8 +5369,8 @@ function renderMain(){
       html += '<label style="display:flex;align-items:center;gap:8px;margin-top:14px;font-size:13.5px;"><input type="checkbox" '+(t.unofficial?'checked':'')+' onchange="t.unofficial=this.checked;saveTournament();" style="width:18px;height:18px;accent-color:var(--ball);flex-shrink:0;" /> Torneo di prova (i risultati non contano per Elo, classifiche e storico)</label>';
       const fullTeams = draftTeams.filter(dt => dt.p1 && dt.p1.trim() && dt.p2 && dt.p2.trim()).length;
       const openTeam = draftTeams.find(dt => !(dt.p1 && dt.p1.trim() && dt.p2 && dt.p2.trim()));
-      const startBlock = fullTeams < 4 || !!openTeam;
-      if(fullTeams < 4){ html += '<p class="hint" style="margin-top:14px;color:var(--danger);font-weight:600;">Servono almeno 4 squadre complete per iniziare: ora ne hai '+fullTeams+'.</p>'; }
+      const startBlock = fullTeams < minTeams() || !!openTeam;
+      if(fullTeams < minTeams()){ html += '<p class="hint" style="margin-top:14px;color:var(--danger);font-weight:600;">Servono almeno '+minTeams()+' squadre complete per iniziare: ora ne hai '+fullTeams+'.</p>'; }
       else if(openTeam){ html += '<p class="hint" style="margin-top:14px;color:var(--danger);font-weight:600;">La Squadra '+(openTeam.id+1)+' è incompleta: completala o rimuovila.</p>'; }
       html += '<button class="primary" onclick="startTournament()" style="margin-top:'+(startBlock ? 8 : 14)+'px;"'+(startBlock ? ' disabled' : '')+'>Inizia torneo</button>';
       html += '<p class="err" id="setupErr"></p></section>';
@@ -5271,6 +5425,7 @@ function renderMain(){
         html += '<div class="btn-pair"><button class="ghost" onclick="cancelPairEdit()">Annulla</button><button class="primary" onclick="applyPairEdit()">Applica abbinamenti</button></div></section>';
       } else {
       html += '<button class="ghost" style="margin-bottom:10px;" onclick="openPairEdit()">Cambia abbinamenti</button>';
+      html += roundRestoreHtml();
       html += '<div class="btn-pair" style="margin-bottom:10px;"><button class="secondary" style="margin-top:0;" onclick="shareRoundWhatsApp()">Condividi turno</button><button class="secondary" style="margin-top:0;" onclick="openKiosk()">Tabellone live</button></div>';
       if(t.history && t.history.length){ html += '<button class="ghost" style="margin-bottom:10px;" onclick="shareLiveResults()">Condividi risultati finora</button>'; }
       const gmRound2 = strengthMap(), methodLabel2 = suggestBy === 'glicko' ? 'Glicko-2' : 'Elo';
