@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v56">
+<meta name="app-version" content="v57">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2411,6 +2411,8 @@ function dataSection(){
   html += '<div class="set-row"><span>Rating di partenza</span><select onchange="setCalcBase(this.value)"><option value="set"'+(calc.base==='set'?' selected':'')+'>valore impostato</option><option value="1000"'+(calc.base==='1000'?' selected':'')+'>1000 per tutti</option></select></div>';
   html += '<label class="set-check"><input type="checkbox" '+(calc.recAll !== false ? 'checked' : '')+' onchange="setRecAll(this.checked)" /> <span>Serie e record: usa tutta la storia, anche prima della data di inizio</span></label>';
   html += winOnlyCheckboxHtml();
+  html += winFloorRowHtml();
+  html += '<p class="hint">Soglia vittoria: quanto vale al minimo una vittoria negli Elo e Glicko-2 con scarto di game. Più è alta, meno conta lo scarto (1 = solo V/S).</p>';
   html += '<p class="hint">Contano '+archive.filter(countsForRatings).length+' tornei su '+archive.length+'. Quelli prima della data restano in archivio ma non entrano in Elo, Glicko-2, % vittorie e classifica squadre. I giocatori congelati tengono il loro valore. Data vuota = conta tutto.</p>';
   if(dataMsg){ html += '<p class="hint" style="margin-top:8px;">'+dataMsg+'</p>'; }
   html += '</section>';
@@ -2424,6 +2426,16 @@ function setTeamMin(v){ calc.teamMin = [1,2,3,5].includes(+v) ? +v : 1; teamShow
 function moreTeams(){ teamShown += 25; const y = window.scrollY; render(); window.scrollTo(0, y); }
 function setRecAll(on){ calc.recAll = !!on; saveCalc(); render(); }
 function setWinOnly(on){ calc.winOnly = !!on; applyCalc(); }
+function setWinFloor(v){ const x = Math.round(parseFloat(v)*100)/100; if(!(x >= 0.6 && x <= 0.95)) return; calc.winFloor = x; applyCalc(); }
+// Peso minimo di una vittoria (0,75 = un 6-5 vale 0,75, un 6-0 vale 1). Valori intermedi (es. 0,82) si impostano da Excel e compaiono qui.
+function winFloorRowHtml(){
+  const cur = winFloor(), opts = [0.75, 0.8, 0.85, 0.9, 0.95];
+  if(!opts.includes(cur)) opts.push(cur);
+  opts.sort((a, b) => a - b);
+  const fmt = v => String(v).replace('.', ',');
+  const off = !!calc.winOnly;
+  return '<div class="set-row"'+(off ? ' style="opacity:.5;"' : '')+'><span>Soglia vittoria'+(off ? ' (non usata con solo V/S)' : '')+'</span><select onchange="setWinFloor(this.value)"'+(off ? ' disabled' : '')+'>'+opts.map(v => '<option value="'+v+'"'+(v === cur ? ' selected' : '')+'>'+fmt(v)+(v === 0.75 ? ' (predefinito)' : '')+'</option>').join('')+'</select></div>';
+}
 function winOnlyCheckboxHtml(){
   return '<label class="set-check"><input type="checkbox" '+(calc.winOnly ? 'checked' : '')+' onchange="setWinOnly(this.checked)" /> <span>Solo vittorie/sconfitte (ignora lo scarto di game)</span></label>';
 }
