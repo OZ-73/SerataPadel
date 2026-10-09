@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v59">
+<meta name="app-version" content="v60">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1283,8 +1283,67 @@ function undoLastRound(){
   render();
 }
 
-function generateRound(){
+// Stato prima di generare il turno: serve a ricalcolarlo da capo se cambia l'impostazione "incontri ripetuti" a torneo in corso.
+const PRE_KEYS = ['played','restCounts','courtCounts','sideCounts','lastMeetingCourt','lastMeetingSide'];
+function snapshotPre(){
+  const o = { forRound: t.round + 1, round: t.round, useClassicSchedule: !!t.useClassicSchedule };
+  PRE_KEYS.forEach(k => { if(t[k] !== undefined) o[k] = JSON.parse(JSON.stringify(t[k])); });
+  if(t.classicSchedule) o.classicSchedule = JSON.parse(JSON.stringify(t.classicSchedule));
+  return o;
+}
+function roundHasTypedScores(){
+  return Object.keys(roundDraft || {}).some(i => { const d = roundDraft[i] || {}; return Object.keys(d).some(k => d[k] !== '' && d[k] !== false && d[k] !== undefined && d[k] !== null); });
+}
+let repeatsNote = '';
+// Spunta "incontri ripetuti" anche durante il torneo, con effetto immediato sul turno in corso.
+function toggleRepeatsLive(on){
+  on = !!on;
+  if(!t || (t.mode && t.mode !== 'fixed') || !!t.allowRepeats === on) return;
+  repeatsNote = '';
+  const pre = (t.preRound && t.preRound.forRound === t.round) ? t.preRound : null;
+  const pending = (t.currentMatches || []).length > 0;
+  if(!pending || !pre){
+    t.allowRepeats = on;
+    if(on && t.useClassicSchedule){ t.useClassicSchedule = false; delete t.classicSchedule; }
+    repeatsNote = pending ? 'Impostazione cambiata: vale dal turno successivo (questo turno non si può ricalcolare).' : 'Impostazione cambiata: vale dal turno successivo.';
+    saveTournament(); render(); return;
+  }
+  const wasSuggested = !!(t.sugg && t.sugg.round === t.round && roundSig(t.currentMatches) === roundSig(t.sugg.matches));
+  const typed = roundHasTypedScores();
+  const keep = JSON.parse(JSON.stringify(t)), keepDraft = roundDraft, before = roundSig(t.currentMatches);
+  // si torna a prima del turno e lo si ricalcola con la nuova impostazione, lasciando a riposo le stesse squadre
+  const rest = (t.restingThisRound || []).slice();
+  PRE_KEYS.forEach(k => { if(pre[k] !== undefined) t[k] = JSON.parse(JSON.stringify(pre[k])); else delete t[k]; });
+  t.round = pre.round; t.currentMatches = []; t.restingThisRound = [];
+  t.useClassicSchedule = pre.useClassicSchedule;
+  if(pre.classicSchedule) t.classicSchedule = JSON.parse(JSON.stringify(pre.classicSchedule)); else delete t.classicSchedule;
+  t.allowRepeats = on;
+  if(on && t.useClassicSchedule){ t.useClassicSchedule = false; delete t.classicSchedule; }
+  generateRound(rest);
+  const fresh = JSON.parse(JSON.stringify(t));
+  if(wasSuggested && !typed){
+    repeatsNote = roundSig(t.currentMatches) === before ? 'Impostazione cambiata: gli abbinamenti del turno restano gli stessi.' : 'Impostazione cambiata: abbinamenti del turno ricalcolati.';
+    saveTournament(); render();
+  } else {
+    // il turno resta com'è (modifiche tue o punteggi già digitati): si aggiorna solo il suggerimento
+    t = keep; t.allowRepeats = on;
+    if(on && t.useClassicSchedule){ t.useClassicSchedule = false; delete t.classicSchedule; }
+    t.sugg = fresh.sugg; t.preRound = fresh.preRound;
+    roundDraft = keepDraft; pairEdit = null;
+    repeatsNote = roundSig(fresh.sugg.matches) === roundSig(t.currentMatches)
+      ? 'Impostazione cambiata: il turno è rimasto com\'è e coincide con i suggeriti.'
+      : 'Impostazione cambiata: il turno è rimasto com\'è (hai già modificato o digitato qualcosa). Con "Ripristina i suggeriti" adotti i nuovi abbinamenti.';
+    saveTournament(); render();
+  }
+}
+function repeatsLiveHtml(){
+  if(!t || t.phase !== 'playing' || (t.mode && t.mode !== 'fixed')) return '';
+  return '<label class="set-check" style="margin-top:6px;"><input type="checkbox" '+(t.allowRepeats ? 'checked' : '')+' onchange="toggleRepeatsLive(this.checked)" /> <span>Consenti incontri ripetuti (rivincite): gli abbinamenti seguono solo l\'equilibrio, anche in questo turno</span></label>'+(repeatsNote ? '<p class="hint" style="margin:0 0 10px;">'+esc(repeatsNote)+'</p>' : '');
+}
+function generateRound(fixedRest){
   if(t.mode && t.mode !== 'fixed') return generateRotatingRound();
+  repeatsNote = '';
+  t.preRound = snapshotPre();
   t.round++;
 
   if(t.useClassicSchedule && t.classicSchedule && t.round <= t.classicSchedule.length){
@@ -1307,8 +1366,12 @@ function generateRound(){
 
   let restIds = [];
   if(restingCount > 0){
-    const byRest = shuffle(teams).sort((a,b)=> (t.restCounts[a.id]||0) - (t.restCounts[b.id]||0));   // a parità di riposi si sceglie a caso (la lista è ordinata per forza)
-    restIds = byRest.slice(0, restingCount).map(x=>x.id);
+    if(Array.isArray(fixedRest) && fixedRest.length === restingCount && fixedRest.every(id => teams.some(x => x.id === id))){
+      restIds = fixedRest.slice();   // ricalcolo del turno: restano a riposo le stesse squadre
+    } else {
+      const byRest = shuffle(teams).sort((a,b)=> (t.restCounts[a.id]||0) - (t.restCounts[b.id]||0));   // a parità di riposi si sceglie a caso (la lista è ordinata per forza)
+      restIds = byRest.slice(0, restingCount).map(x=>x.id);
+    }
     restIds.forEach(id => t.restCounts[id] = (t.restCounts[id]||0) + 1);
   }
 
@@ -5426,6 +5489,7 @@ function renderMain(){
       } else {
       html += '<button class="ghost" style="margin-bottom:10px;" onclick="openPairEdit()">Cambia abbinamenti</button>';
       html += roundRestoreHtml();
+      html += repeatsLiveHtml();
       html += '<div class="btn-pair" style="margin-bottom:10px;"><button class="secondary" style="margin-top:0;" onclick="shareRoundWhatsApp()">Condividi turno</button><button class="secondary" style="margin-top:0;" onclick="openKiosk()">Tabellone live</button></div>';
       if(t.history && t.history.length){ html += '<button class="ghost" style="margin-bottom:10px;" onclick="shareLiveResults()">Condividi risultati finora</button>'; }
       const gmRound2 = strengthMap(), methodLabel2 = suggestBy === 'glicko' ? 'Glicko-2' : 'Elo';
@@ -5474,12 +5538,13 @@ function renderMain(){
       html += '<section><button class="primary" onclick="generateRound()">Genera turno '+(t.round+1)+' di '+t.maxRounds+'</button>';
       if(t.round > 0){ html += '<button class="ghost" onclick="undoLastRound()">Torna al turno precedente</button>'; }
       if(t.round > 0 || (t.extras && t.extras.length > 0)){ html += '<button class="ghost" onclick="finishTournament()">Termina torneo</button>'; }
+      html += repeatsLiveHtml();
       html += '</section>';
     } else {
       html += '<section><div class="banner">Turni previsti completati.</div>';
       html += '<button class="primary" onclick="finishTournament()">Termina torneo</button>';
       html += '<button class="ghost" onclick="generateRound()">Gioca un turno extra</button>';
-      html += '<button class="ghost" onclick="undoLastRound()">Torna al turno precedente</button></section>';
+      html += '<button class="ghost" onclick="undoLastRound()">Torna al turno precedente</button>'+repeatsLiveHtml()+'</section>';
     }
 
     if(!rotating){ html += substSection(); }
