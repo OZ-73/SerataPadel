@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v62">
+<meta name="app-version" content="v63">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -161,6 +161,9 @@
   .data-row + .data-row{margin-top:8px;}
   .data-sub{font-family:var(--font-head);font-size:12px;color:var(--ink-dim);font-weight:600;margin:20px 0 10px;padding-top:16px;border-top:1px solid rgba(128,128,128,.35);}
   .data-sub.first{margin-top:4px;padding-top:0;border-top:none;}
+  .rank-filter{display:flex;align-items:center;gap:8px;font-size:13.5px;margin:0 0 10px;}
+  .rank-filter span{flex:0 0 112px;}
+  .rank-filter select{flex:1;min-width:0;width:auto;}
   .set-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 10px;font-size:13.5px;}
   .set-row input[type=date], .set-row select{width:auto;flex:0 0 auto;max-width:58%;padding:9px 12px;font-size:14px;background-color:var(--card);border:1px solid var(--card-border);border-radius:10px;color:var(--ink);font-family:var(--font-body);}
   .set-row select{padding-right:30px;}
@@ -270,11 +273,11 @@ function rankVenueSelectHtml(){
   const vs = venuesInArchive();
   if(!vs.length) return '';
   const cur = activeRankVenue();
-  return '<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin:0 0 10px;">Luogo <select onchange="setRankVenue(this.value)" style="flex:1;min-width:0;"><option value="">Tutti i luoghi</option>'+vs.map(v => '<option value="'+esc(v)+'"'+(v === cur ? ' selected' : '')+'>'+esc(v)+'</option>').join('')+'</select></label>';
+  return '<label class="rank-filter"><span>Luogo</span><select onchange="setRankVenue(this.value)"><option value="">Tutti i luoghi</option>'+vs.map(v => '<option value="'+esc(v)+'"'+(v === cur ? ' selected' : '')+'>'+esc(v)+'</option>').join('')+'</select></label>';
 }
 function rankMinSelectHtml(){
   const m = playerMin();
-  return '<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin:0 0 10px;">Minimo partite <select onchange="setPlayerMin(this.value)">'+[1,3,5,10].map(n => '<option value="'+n+'"'+(n === m ? ' selected' : '')+'>'+(n === 1 ? '1 (tutte)' : n)+'</option>').join('')+'</select></label>';
+  return '<label class="rank-filter"><span>Minimo partite</span><select onchange="setPlayerMin(this.value)">'+[1,3,5,10].map(n => '<option value="'+n+'"'+(n === m ? ' selected' : '')+'>'+(n === 1 ? '1 (tutte)' : n)+'</option>').join('')+'</select></label>';
 }
 // Giocatori della classifica: con il filtro luogo, elo/partite/vittorie vengono ricalcolati solo sui tornei di quel luogo.
 function rankingPlayers(){
@@ -1070,6 +1073,7 @@ function venueFieldHtml(){
 function updateRounds(val){ t.maxRounds = parseInt(val)||0; saveTournament(); }
 
 function startTournament(){
+  liveNote = '';
   const isFull = dt => !!(dt.p1 && dt.p1.trim() && dt.p2 && dt.p2.trim());
   const valid = draftTeams.filter(isFull);
   const incompleteTeam = draftTeams.find(dt => !isFull(dt));
@@ -1266,7 +1270,24 @@ function classicSchedule(teamIds){
   return rounds;
 }
 
+// Bozza del turno ricostruita da partite già salvate: punteggi, tie-break e lati restano nelle caselle, per correggere senza riscrivere tutto.
+function draftFromMatches(matches){
+  const d = {};
+  matches.forEach((m, i) => {
+    const e = {};
+    if(m.s1 !== undefined) e.s1 = String(m.s1);
+    if(m.s2 !== undefined) e.s2 = String(m.s2);
+    if(m.tb && m.tb.length === 2){ e.tb1 = String(m.tb[0]); e.tb2 = String(m.tb[1]); }
+    if(m.sides && m.sides.a && m.sides.b && m.pa && m.pb){
+      if(m.sides.a[0] !== m.pa[0]) e.swA = true;
+      if(m.sides.b[0] !== m.pb[0]) e.swB = true;
+    }
+    d[i] = e;
+  });
+  return d;
+}
 function undoLastRound(){
+  liveNote = '';
   if(t.mode && t.mode !== 'fixed') return undoRotatingRound();
   if(t.history.length === 0) return;
   const last = t.history.pop();
@@ -1283,7 +1304,7 @@ function undoLastRound(){
   t.teams.forEach(tm => { if(tm.out && tm.outFrom > last.round){ delete tm.out; delete tm.outFrom; } });
   t.currentMatches = restoredMatches.filter(x => x !== undefined);
   t.restingThisRound = last.resting || [];
-  roundDraft = {};
+  roundDraft = draftFromMatches(last.matches.filter(m => m.court !== undefined).sort((x, y) => x.court - y.court));
   pairEdit = null;
   saveTournament();
   render();
@@ -1741,6 +1762,7 @@ function scoreIsPlausible(s1, s2){
 }
 
 function submitResults(){
+  liveNote = '';
   if(t.mode && t.mode !== 'fixed') return submitRotatingResults();
   let valid = true;
   t.currentMatches.forEach((m,idx) => {
@@ -1786,6 +1808,7 @@ function submitResults(){
 }
 
 function finishTournament(){
+  liveNote = '';
   ratingSummary = null;
   const rotating = !!(t.mode && t.mode !== 'fixed');
   if((t.round > 0 || (t.extras||[]).length > 0) && !t.unofficial){
@@ -1830,6 +1853,7 @@ function finishTournament(){
 }
 
 function resetAll(){
+  liveNote = '';
   if(!resetArmed){ resetArmed = true; render(); return; }
   const courts = t.courts, maxRounds = t.maxRounds, venue = t.venue || '';
   t = { phase:'setup', venue, courts, maxRounds, teams:[], round:0, played:[], currentMatches:[], history:[], restCounts:{}, extras:[] };
@@ -3880,6 +3904,7 @@ function generateRotatingRound(fixedRest){
 }
 
 function submitRotatingResults(){
+  liveNote = '';
   let valid = true;
   t.currentMatches.forEach((m,idx) => {
     const s1raw = document.getElementById('s1_'+idx).value, s2raw = document.getElementById('s2_'+idx).value;
@@ -3913,19 +3938,20 @@ function submitRotatingResults(){
 }
 
 function undoRotatingRound(){
+  liveNote = '';
   if(t.history.length === 0) return;
   const last = t.history.pop();
   t.currentMatches = last.matches.map(m => ({ pa:m.pa, pb:m.pb, aName:m.a, bName:m.b, court:m.court }));
   (last.resting || []).forEach(id => { if(t.restCounts[id] > 0) t.restCounts[id]--; });
   t.restingThisRound = last.resting || [];
-  roundDraft = {};
-  last.matches.forEach((m, idx) => { if(m.sides){ roundDraft[idx] = { swA: m.sides.a[0] !== m.pa[0], swB: m.sides.b[0] !== m.pb[0] }; } });
+  roundDraft = draftFromMatches(last.matches);
   pairEdit = null;
   saveTournament();
   render();
 }
 
 function startRotatingTournament(){
+  liveNote = '';
   const players = Array.from(selected).filter(k => roster[k]);
   if(!t.courts || t.courts < 1){ document.getElementById('setupErr').textContent = 'Indica quanti campi avete.'; return; }
   if(!t.maxRounds || t.maxRounds < 1){ document.getElementById('setupErr').textContent = 'Indica quanti turni volete giocare.'; return; }
@@ -5570,15 +5596,13 @@ function renderMain(){
       html += '<section><button class="primary" onclick="generateRound()">Genera turno '+(t.round+1)+' di '+t.maxRounds+'</button>';
       if(t.round > 0){ html += '<button class="ghost" onclick="undoLastRound()">Torna al turno precedente</button>'; }
       if(t.round > 0 || (t.extras && t.extras.length > 0)){ html += '<button class="ghost" onclick="finishTournament()">Termina torneo</button>'; }
-      html += liveNoteHtml();
-      if(rotating) html += methodToggleHtml();
-      html += repeatsLiveHtml();
+      html += '<div style="margin-top:14px;">'+liveNoteHtml()+(rotating ? methodToggleHtml() : '')+repeatsLiveHtml()+'</div>';
       html += '</section>';
     } else {
       html += '<section><div class="banner">Turni previsti completati.</div>';
       html += '<button class="primary" onclick="finishTournament()">Termina torneo</button>';
       html += '<button class="ghost" onclick="generateRound()">Gioca un turno extra</button>';
-      html += '<button class="ghost" onclick="undoLastRound()">Torna al turno precedente</button>'+liveNoteHtml()+(rotating ? methodToggleHtml() : '')+repeatsLiveHtml()+'</section>';
+      html += '<button class="ghost" onclick="undoLastRound()">Torna al turno precedente</button><div style="margin-top:14px;">'+liveNoteHtml()+(rotating ? methodToggleHtml() : '')+repeatsLiveHtml()+'</div></section>';
     }
 
     if(!rotating){ html += substSection(); }
