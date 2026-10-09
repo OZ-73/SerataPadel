@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v60">
+<meta name="app-version" content="v62">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -164,8 +164,9 @@
   .set-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 10px;font-size:13.5px;}
   .set-row input[type=date], .set-row select{width:auto;flex:0 0 auto;max-width:58%;padding:9px 12px;font-size:14px;background-color:var(--card);border:1px solid var(--card-border);border-radius:10px;color:var(--ink);font-family:var(--font-body);}
   .set-row select{padding-right:30px;}
-  .set-check{display:flex;align-items:flex-start;gap:10px;font-size:13.5px;line-height:1.4;margin:0 0 12px;cursor:pointer;}
-  .set-check input{width:18px;height:18px;flex-shrink:0;margin:1px 0 0;accent-color:var(--ball);}
+  /* stessa geometria delle altre spunte dell'app (margine del campo 4px a sinistra, 3px a destra, spazio 8px): così sono tutte allineate */
+  .set-check{display:flex;align-items:flex-start;gap:8px;font-size:13.5px;line-height:1.4;margin:0 0 12px;cursor:pointer;}
+  .set-check input{width:18px;height:18px;flex-shrink:0;margin:1px 3px 0 4px;accent-color:var(--ball);}
   input[type=file]{display:none;}
 
   footer{text-align:center;color:var(--ink-dim);font-size:12px;margin-top:2rem;}
@@ -770,9 +771,14 @@ function confirmDelete(key){
 
 const LS_SUGGEST_BY = 'padel-suggestby-v1';
 let suggestBy = (function(){ try{ return localStorage.getItem(LS_SUGGEST_BY)==='glicko' ? 'glicko' : 'elo'; }catch(e){ return 'elo'; } })();
-function setSuggestBy(m){ suggestBy = m; try{ localStorage.setItem(LS_SUGGEST_BY, m); }catch(e){} render(); }
+function setSuggestBy(m){
+  if(m !== 'elo' && m !== 'glicko') return;
+  const change = () => { suggestBy = m; try{ localStorage.setItem(LS_SUGGEST_BY, m); }catch(e){} };
+  if(suggestBy !== m && onPlayScreen() && !pairEdit) regenerateRoundLive(change, null, m === 'glicko' ? 'abbina per Glicko-2' : 'abbina per Elo');
+  else { change(); render(); }
+}
 function methodToggleHtml(){
-  return '<div class="seg" style="margin-bottom:10px;"><button class="small'+(suggestBy==='elo'?' on':'')+'" onclick="setSuggestBy(\'elo\')">Elo</button><button class="small'+(suggestBy==='glicko'?' on':'')+'" onclick="setSuggestBy(\'glicko\')">Glicko-2</button></div>';
+  return '<div class="seg" style="margin-bottom:10px;"><button class="small'+(suggestBy==='elo'?' on':'')+'" onclick="setSuggestBy(\'elo\')">Elo</button><button class="small'+(suggestBy==='glicko'?' on':'')+'" onclick="setSuggestBy(\'glicko\')">Glicko-2</button></div>'+winOnlyCheckboxHtml();
 }
 const LS_VARY_PAIRS = 'padel-varypairs-v1', LS_IGNORE_SIDES = 'padel-ignoresides-v1';
 let varyPairs = (function(){ try{ return localStorage.getItem(LS_VARY_PAIRS) !== '0'; }catch(e){ return true; } })();       // di default: un po' di casualità tra forze simili
@@ -1294,18 +1300,22 @@ function snapshotPre(){
 function roundHasTypedScores(){
   return Object.keys(roundDraft || {}).some(i => { const d = roundDraft[i] || {}; return Object.keys(d).some(k => d[k] !== '' && d[k] !== false && d[k] !== undefined && d[k] !== null); });
 }
-let repeatsNote = '';
-// Spunta "incontri ripetuti" anche durante il torneo, con effetto immediato sul turno in corso.
-function toggleRepeatsLive(on){
-  on = !!on;
-  if(!t || (t.mode && t.mode !== 'fixed') || !!t.allowRepeats === on) return;
-  repeatsNote = '';
+let liveNote = '';
+function onPlayScreen(){ return !!(t && t.phase === 'playing' && !viewingPlayerId && !showDiag && !showRanking && !showTeamRanking && !showArchive); }
+function liveNoteHtml(){ return liveNote ? '<p class="hint" style="margin:0 0 10px;">'+esc(liveNote)+'</p>' : ''; }
+// Cambio di un'impostazione (incontri ripetuti, metodo di forza, solo V/S) a torneo in corso, con effetto immediato sul turno in corso:
+// - se il turno è ancora quello suggerito dall'app e senza nulla di digitato, viene ricalcolato subito (stesse squadre/giocatori a riposo);
+// - altrimenti resta com'è e si aggiornano solo i suggerimenti (si adottano con "Ripristina i suggeriti").
+// globalChange: impostazione globale (eseguita una volta); tournamentChange: parte nel torneo (eseguita dopo ogni ripristino dello stato).
+function regenerateRoundLive(globalChange, tournamentChange, what){
+  liveNote = '';
+  const rotating = !!(t.mode && t.mode !== 'fixed');
   const pre = (t.preRound && t.preRound.forRound === t.round) ? t.preRound : null;
   const pending = (t.currentMatches || []).length > 0;
+  if(globalChange) globalChange();
   if(!pending || !pre){
-    t.allowRepeats = on;
-    if(on && t.useClassicSchedule){ t.useClassicSchedule = false; delete t.classicSchedule; }
-    repeatsNote = pending ? 'Impostazione cambiata: vale dal turno successivo (questo turno non si può ricalcolare).' : 'Impostazione cambiata: vale dal turno successivo.';
+    if(tournamentChange) tournamentChange();
+    liveNote = 'Impostazione cambiata ('+what+'): vale dal turno successivo'+(pending ? ' (questo turno non si può ricalcolare).' : '.');
     saveTournament(); render(); return;
   }
   const wasSuggested = !!(t.sugg && t.sugg.round === t.round && roundSig(t.currentMatches) === roundSig(t.sugg.matches));
@@ -1313,36 +1323,43 @@ function toggleRepeatsLive(on){
   const keep = JSON.parse(JSON.stringify(t)), keepDraft = roundDraft, before = roundSig(t.currentMatches);
   // si torna a prima del turno e lo si ricalcola con la nuova impostazione, lasciando a riposo le stesse squadre
   const rest = (t.restingThisRound || []).slice();
-  PRE_KEYS.forEach(k => { if(pre[k] !== undefined) t[k] = JSON.parse(JSON.stringify(pre[k])); else delete t[k]; });
+  PRE_KEYS.forEach(k => { if(pre[k] !== undefined) t[k] = JSON.parse(JSON.stringify(pre[k])); });
   t.round = pre.round; t.currentMatches = []; t.restingThisRound = [];
-  t.useClassicSchedule = pre.useClassicSchedule;
-  if(pre.classicSchedule) t.classicSchedule = JSON.parse(JSON.stringify(pre.classicSchedule)); else delete t.classicSchedule;
-  t.allowRepeats = on;
-  if(on && t.useClassicSchedule){ t.useClassicSchedule = false; delete t.classicSchedule; }
-  generateRound(rest);
+  if(!rotating){
+    t.useClassicSchedule = pre.useClassicSchedule;
+    if(pre.classicSchedule) t.classicSchedule = JSON.parse(JSON.stringify(pre.classicSchedule)); else delete t.classicSchedule;
+  }
+  if(tournamentChange) tournamentChange();
+  if(rotating) generateRotatingRound(rest); else generateRound(rest);
   const fresh = JSON.parse(JSON.stringify(t));
   if(wasSuggested && !typed){
-    repeatsNote = roundSig(t.currentMatches) === before ? 'Impostazione cambiata: gli abbinamenti del turno restano gli stessi.' : 'Impostazione cambiata: abbinamenti del turno ricalcolati.';
+    liveNote = 'Impostazione cambiata ('+what+'): ' + (roundSig(t.currentMatches) === before ? 'gli abbinamenti del turno restano gli stessi.' : 'abbinamenti del turno ricalcolati.');
     saveTournament(); render();
   } else {
     // il turno resta com'è (modifiche tue o punteggi già digitati): si aggiorna solo il suggerimento
-    t = keep; t.allowRepeats = on;
-    if(on && t.useClassicSchedule){ t.useClassicSchedule = false; delete t.classicSchedule; }
+    t = keep;
+    if(tournamentChange) tournamentChange();
     t.sugg = fresh.sugg; t.preRound = fresh.preRound;
     roundDraft = keepDraft; pairEdit = null;
-    repeatsNote = roundSig(fresh.sugg.matches) === roundSig(t.currentMatches)
-      ? 'Impostazione cambiata: il turno è rimasto com\'è e coincide con i suggeriti.'
-      : 'Impostazione cambiata: il turno è rimasto com\'è (hai già modificato o digitato qualcosa). Con "Ripristina i suggeriti" adotti i nuovi abbinamenti.';
+    liveNote = 'Impostazione cambiata ('+what+'): ' + (roundSig(fresh.sugg.matches) === roundSig(t.currentMatches)
+      ? 'il turno è rimasto com\'è e coincide con i suggeriti.'
+      : 'il turno è rimasto com\'è (hai già modificato o digitato qualcosa). Con "Ripristina i suggeriti" adotti i nuovi abbinamenti.');
     saveTournament(); render();
   }
 }
+// Spunta "incontri ripetuti" anche durante il torneo (squadre fisse).
+function toggleRepeatsLive(on){
+  on = !!on;
+  if(!t || (t.mode && t.mode !== 'fixed') || !!t.allowRepeats === on) return;
+  regenerateRoundLive(null, () => { t.allowRepeats = on; if(on && t.useClassicSchedule){ t.useClassicSchedule = false; delete t.classicSchedule; } }, 'incontri ripetuti');
+}
 function repeatsLiveHtml(){
   if(!t || t.phase !== 'playing' || (t.mode && t.mode !== 'fixed')) return '';
-  return '<label class="set-check" style="margin-top:6px;"><input type="checkbox" '+(t.allowRepeats ? 'checked' : '')+' onchange="toggleRepeatsLive(this.checked)" /> <span>Consenti incontri ripetuti (rivincite): gli abbinamenti seguono solo l\'equilibrio, anche in questo turno</span></label>'+(repeatsNote ? '<p class="hint" style="margin:0 0 10px;">'+esc(repeatsNote)+'</p>' : '');
+  return '<label class="set-check" style="margin-top:6px;"><input type="checkbox" '+(t.allowRepeats ? 'checked' : '')+' onchange="toggleRepeatsLive(this.checked)" /> <span>Consenti incontri ripetuti (rivincite): gli abbinamenti seguono solo l\'equilibrio, anche in questo turno</span></label>';
 }
 function generateRound(fixedRest){
   if(t.mode && t.mode !== 'fixed') return generateRotatingRound();
-  repeatsNote = '';
+  liveNote = '';
   t.preRound = snapshotPre();
   t.round++;
 
@@ -2681,14 +2698,20 @@ function dataSection(){
   html += '</section>';
   return html;
 }
-function applyCalc(){ saveCalc(); recomputeRatings(); ratingSummary = null; saveRoster(); saveArchive(); render(); }
+function applyCalcQuiet(){ saveCalc(); recomputeRatings(); ratingSummary = null; saveRoster(); saveArchive(); }
+function applyCalc(){ applyCalcQuiet(); render(); }
 function setCalcFrom(v){ calc.from = cleanCalc({ from:v }).from; applyCalc(); }
 let teamShown = 25;   // quante squadre mostrare nella classifica (a pagine di 25)
 function setTeamRot(on){ calc.teamRot = !!on; teamShown = 25; saveCalc(); render(); }
 function setTeamMin(v){ calc.teamMin = [1,2,3,5].includes(+v) ? +v : 1; teamShown = 25; saveCalc(); render(); }
 function moreTeams(){ teamShown += 25; const y = window.scrollY; render(); window.scrollTo(0, y); }
 function setRecAll(on){ calc.recAll = !!on; saveCalc(); render(); }
-function setWinOnly(on){ calc.winOnly = !!on; applyCalc(); }
+function setWinOnly(on){
+  on = !!on;
+  const change = () => { calc.winOnly = on; applyCalcQuiet(); };
+  if(!!calc.winOnly !== on && onPlayScreen() && !pairEdit) regenerateRoundLive(change, null, on ? 'solo V/S' : 'con scarto di game');
+  else { change(); render(); }
+}
 function setWinFloor(v){ const x = Math.round(parseFloat(v)*100)/100; if(!(x >= 0.6 && x <= 0.95)) return; calc.winFloor = x; applyCalc(); }
 // Peso minimo di una vittoria (0,75 = un 6-5 vale 0,75, un 6-0 vale 1). Valori intermedi (es. 0,82) si impostano da Excel e compaiono qui.
 function winFloorRowHtml(){
@@ -3826,15 +3849,21 @@ function americanoGroups(playing, matchesCount){
   return best;
 }
 
-function generateRotatingRound(){
+function generateRotatingRound(fixedRest){
+  liveNote = '';
+  t.preRound = snapshotPre();
   t.round++;
   const pool = t.players.slice();
   const matchesCount = Math.min(t.courts, Math.floor(pool.length/4));
   const restingCount = pool.length - matchesCount*4;
   let restIds = [];
   if(restingCount > 0){
-    const byRest = shuffle(pool).sort((a,b) => (t.restCounts[a]||0) - (t.restCounts[b]||0));
-    restIds = byRest.slice(0, restingCount);
+    if(Array.isArray(fixedRest) && fixedRest.length === restingCount && fixedRest.every(id => pool.includes(id))){
+      restIds = fixedRest.slice();   // ricalcolo del turno: restano a riposo gli stessi giocatori
+    } else {
+      const byRest = shuffle(pool).sort((a,b) => (t.restCounts[a]||0) - (t.restCounts[b]||0));
+      restIds = byRest.slice(0, restingCount);
+    }
     restIds.forEach(id => { t.restCounts[id] = (t.restCounts[id]||0) + 1; });
   }
   const playing = pool.filter(id => !restIds.includes(id));
@@ -5356,6 +5385,7 @@ function renderMain(){
     if(pendingMode === 'fixed'){
       html += '<section><div class="seg"><button class="small'+(suggestBy==='elo'?' on':'')+'" onclick="setSuggestBy(\'elo\')">Abbina per Elo</button>';
       html += '<button class="small'+(suggestBy==='glicko'?' on':'')+'" onclick="setSuggestBy(\'glicko\')">Abbina per Glicko-2</button></div>';
+      html += winOnlyCheckboxHtml();
       html += '<label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13.5px;"><input type="checkbox" '+(varyPairs?'checked':'')+' onchange="setVaryPairs(this.checked)" style="width:18px;height:18px;accent-color:var(--ball);flex-shrink:0;" /> Un po\' di casualità (giocatori di forza simile si scambiano)</label>';
       html += '<label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13.5px;"><input type="checkbox" '+(ignoreSides?'checked':'')+' onchange="setIgnoreSides(this.checked)" style="width:18px;height:18px;accent-color:var(--ball);flex-shrink:0;" /> Ignora Sx/Dx dichiarati</label>';
       const selN = selectedCount(), selBad = teamSelectionError(selN);
@@ -5368,6 +5398,7 @@ function renderMain(){
       if(draftTeams.length === 0){ html += '<p class="err" id="setupErr"></p>'; }
       html += '</section>';
     } else {
+      html += '<section><p class="section-label">Forza per gli abbinamenti</p>'+methodToggleHtml()+'<p class="hint" style="margin:0;">Le coppie vengono equilibrate con il rating scelto (Elo o Glicko-2; con la spunta senza contare lo scarto di game). Valgono per tutta l\'app e si possono cambiare anche durante la serata: il turno in corso si ricalcola.</p></section>';
       html += '<section><p class="section-label">Serata</p>'+venueFieldHtml()+'<div class="row2">';
       html += '<div><label class="field">Campi disponibili</label><input type="number" id="courtsInput" min="1" value="'+(t.courts||3)+'" oninput="updateCourts(this.value)" /></div>';
       html += '<div><label class="field">Turni da giocare</label><input type="number" id="roundsInput" min="1" value="'+(t.maxRounds||3)+'" oninput="updateRounds(this.value)" /></div>';
@@ -5489,6 +5520,7 @@ function renderMain(){
       } else {
       html += '<button class="ghost" style="margin-bottom:10px;" onclick="openPairEdit()">Cambia abbinamenti</button>';
       html += roundRestoreHtml();
+      html += liveNoteHtml();
       html += repeatsLiveHtml();
       html += '<div class="btn-pair" style="margin-bottom:10px;"><button class="secondary" style="margin-top:0;" onclick="shareRoundWhatsApp()">Condividi turno</button><button class="secondary" style="margin-top:0;" onclick="openKiosk()">Tabellone live</button></div>';
       if(t.history && t.history.length){ html += '<button class="ghost" style="margin-bottom:10px;" onclick="shareLiveResults()">Condividi risultati finora</button>'; }
@@ -5538,13 +5570,15 @@ function renderMain(){
       html += '<section><button class="primary" onclick="generateRound()">Genera turno '+(t.round+1)+' di '+t.maxRounds+'</button>';
       if(t.round > 0){ html += '<button class="ghost" onclick="undoLastRound()">Torna al turno precedente</button>'; }
       if(t.round > 0 || (t.extras && t.extras.length > 0)){ html += '<button class="ghost" onclick="finishTournament()">Termina torneo</button>'; }
+      html += liveNoteHtml();
+      if(rotating) html += methodToggleHtml();
       html += repeatsLiveHtml();
       html += '</section>';
     } else {
       html += '<section><div class="banner">Turni previsti completati.</div>';
       html += '<button class="primary" onclick="finishTournament()">Termina torneo</button>';
       html += '<button class="ghost" onclick="generateRound()">Gioca un turno extra</button>';
-      html += '<button class="ghost" onclick="undoLastRound()">Torna al turno precedente</button>'+repeatsLiveHtml()+'</section>';
+      html += '<button class="ghost" onclick="undoLastRound()">Torna al turno precedente</button>'+liveNoteHtml()+(rotating ? methodToggleHtml() : '')+repeatsLiveHtml()+'</section>';
     }
 
     if(!rotating){ html += substSection(); }
