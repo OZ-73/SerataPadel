@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v66">
+<meta name="app-version" content="v67">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2909,17 +2909,45 @@ function computeRanks(list, keyFn){
 }
 function rankLabel(r){ return (r.tied ? '=' : '') + r.rank; }
 
-function teamRankingView(){
+function teamRankList(){
   const minM = calc.teamMin || 1;
   const vTeam = activeRankVenue(), fOn = rankFilterActive();
   const list = teamStats(rankArchive(), fOn ? (!activeRankManual() && vTeam ? t.venue === vTeam : false) : undefined, calc.teamRot).filter(x=>x.matches>=minM).sort((a,b)=>{
     const wa = a.wins/a.matches, wb = b.wins/b.matches;
     return wb-wa || (b.setsWon-b.setsLost)-(a.setsWon-a.setsLost) || a.name.localeCompare(b.name);
   });
+  return { list, minM };
+}
+function shareTeamRankingWhatsApp(){
+  const { list, minM } = teamRankList();
+  if(!list.length){ dataMsg = 'Nessuna squadra da condividere.'; render(); return; }
+  const ranks = computeRanks(list, tm => Math.round((tm.wins/tm.matches)*100));
+  const mv = movement(positionsTeams, rankArchive());
+  const arrowOf = key => {
+    if(mv.prev && mv.prev[key] !== undefined && mv.cur[key] !== undefined){ const d = mv.prev[key] - mv.cur[key]; return d > 0 ? '↑' + d : (d < 0 ? '↓' + (-d) : '='); }
+    if(mv.cur[key] !== undefined && (!mv.prev || mv.prev[key] === undefined)) return '•';
+    return '';
+  };
+  const LIM = 20, extra = [], venue = activeRankVenue(), manual = activeRankManual();
+  if(venue) extra.push('📍 ' + venue);
+  if(manual) extra.push(manual === 'app' ? 'abbinamenti: app' : 'abbinamenti: manuali');
+  if(minM > 1) extra.push('min. ' + minM + ' partite insieme');
+  let text = '👥 *CLASSIFICA SQUADRE*\n' + (extra.length ? extra.join(' · ') + '\n' : '') + '\n';
+  list.slice(0, LIM).forEach((tm,i) => {
+    const a = arrowOf(tm.key);
+    text += rankLabel(ranks[i]) + '. ' + tm.name + ' — ' + Math.round((tm.wins/tm.matches)*100) + '% (' + fmtWins(tm.wins) + '/' + tm.matches + ')' + (a ? ' ' + a : '') + '\n';
+  });
+  if(list.length > LIM) text += '… e altre ' + (list.length - LIM) + ' squadre\n';
+  text += '\n_↑↓ = cambio posizione vs torneo precedente_';
+  shareText(text.trim(), 'Classifica squadre Padel');
+}
+function teamRankingView(){
+  const { list, minM } = teamRankList();
   let html = '<section><p class="section-label">Classifica squadre</p>';
   html += rankVenueSelectHtml() + rankManualSelectHtml();
   html += '<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin:0 0 10px;"><input type="checkbox" '+(calc.teamRot ? 'checked' : '')+' onchange="setTeamRot(this.checked)" style="width:18px;height:18px;" /> Includi le coppie di Americano e Messicano</label>';
   html += '<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin:0 0 10px;">Minimo partite insieme <select onchange="setTeamMin(this.value)">'+[1,2,3,5].map(n => '<option value="'+n+'"'+(n === minM ? ' selected' : '')+'>'+(n === 1 ? '1 (tutte)' : n)+'</option>').join('')+'</select></label>';
+  html += '<div style="margin-bottom:12px;"><button class="secondary" style="margin-top:0;" onclick="shareTeamRankingWhatsApp()">Condividi classifica</button></div>';
   html += '<p class="hint">Aggrega tutte le volte in cui una stessa coppia ha giocato insieme, tornei di prova esclusi. Le frecce mostrano il cambio di posizione dovuto all\'ultimo torneo archiviato.</p>';
   if(list.length === 0){
     html += '<p class="roster-empty">'+(minM > 1 ? 'Nessuna squadra con almeno '+minM+' partite insieme.' : 'Nessuna squadra con partite giocate ancora.')+'</p>';
@@ -4786,7 +4814,18 @@ function shareRankingWhatsApp(){
     if(mv.cur[key] !== undefined && (!mv.prev || mv.prev[key] === undefined)) return '•';
     return '';
   };
-  if(rankMode === 'glicko'){
+  if(rankMode === 'adv'){
+    text = '📊 *CLASSIFICA INDIVIDUALE*\n(forza di ognuno, separata dal compagno)\n\n';
+    const stE = computeEloStates(rl, false);
+    const rows = computeAdvanced(rl).filter(r => !(roster[r.id] && roster[r.id].frozen) && r.games >= minP).sort((a,b)=> b.rating-a.rating || a.name.localeCompare(b.name));
+    const ranks = computeRanks(rows, r => Math.round(r.rating));
+    const mv = movement(positionsAdv, rl, minP);
+    lines.push(padR('#', 4) + padR('Giocatore', 12) + padL('Rating', 7) + '|' + padL('±', 4) + padL('ΔElo', 5) + padL('Trend', 6));
+    rows.forEach((r,i) => {
+      const dl = stE[r.id] ? Math.round(r.rating - stE[r.id].elo) : null;
+      lines.push(padR(rankLabel(ranks[i]), 4) + padR(nm(r.id, r.name, vOn ? r.games : undefined), 12) + padL(Math.round(r.rating), 7) + '|' + padL(Math.round(r.se), 4) + padL(dl === null ? '' : (dl > 0 ? '+' : '') + dl, 5) + padL(arrowOf(mv, r.id), 6));
+    });
+  } else if(rankMode === 'glicko'){
     text = '📊 *CLASSIFICA GLICKO-2*\n\n';
     const rows = computeGlicko(rl).filter(r => !(roster[r.id] && roster[r.id].frozen) && r.games >= minP).sort((a,b)=> b.rating-a.rating || a.name.localeCompare(b.name));
     const ranks = computeRanks(rows, r => Math.round(r.rating));
@@ -4825,6 +4864,7 @@ function shareRankingWhatsApp(){
   if(frozen.length) text += '\n❄ Congelati: ' + frozen.join(', ') + '\n';
   if(extrasOff) text += '\n(confronto: partite extra escluse dai calcoli)';
   if(anyProv) text += '\n* provvisorio (meno di ' + PROVISIONAL_MATCHES + ' partite)';
+  if(rankMode === 'adv') text += '\n_± = incertezza · ΔElo = individuale meno Elo (negativo: l\'Elo premia più della forza individuale)_';
   text += '\n_↑↓ = cambio posizione vs torneo precedente_';
   shareText(text.trim(), 'Classifica Padel');
 }
@@ -5318,7 +5358,7 @@ function playerProfileView(id){
   return html;
 }
 
-// ---------- Classifica avanzata: forza individuale stimata in modo iterativo ----------
+// ---------- Classifica individuale: forza individuale stimata in modo iterativo ----------
 // L'Elo passa una sola volta sulle partite e dà lo stesso scarto a entrambi i compagni. Qui invece si stimano
 // TUTTI i giocatori insieme: si parte da zero e si ripete il calcolo (ogni giocatore viene riaggiustato dati i rating
 // attuali di compagni e avversari) finché i valori non si stabilizzano. Così il merito di una vittoria si ridistribuisce
@@ -5373,14 +5413,15 @@ function rankingView(){
   html += '<div class="seg"><button class="small'+(rankMode==='elo'?' on':'')+'" onclick="setRankMode(\'elo\')">Elo</button>';
   html += '<button class="small'+(rankMode==='win'?' on':'')+'" onclick="setRankMode(\'win\')">% vittorie</button>';
   html += '<button class="small'+(rankMode==='glicko'?' on':'')+'" onclick="setRankMode(\'glicko\')">Glicko-2</button>';
-  html += '<button class="small'+(rankMode==='adv'?' on':'')+'" onclick="setRankMode(\'adv\')">Avanzata</button></div>';
+  html += '<button class="small'+(rankMode==='adv'?' on':'')+'" onclick="setRankMode(\'adv\')">Individuale</button></div>';
   html += extrasToggleHtml();
   html += rankVenueSelectHtml() + rankManualSelectHtml() + (rankMode === 'win' ? '' : rankMinSelectHtml() + winOnlyCheckboxHtml());
   if(archive.some(isDynamic)) html += dynamicCheckboxHtml();
   if(rankMode !== 'win' && calc.winOnly){ html += '<p class="hint">Elo e Glicko-2 contano solo chi ha vinto: 6-0 e 6-5 valgono uguale. È un\'impostazione di tutta l\'app (anche Variazioni Elo e trend) e ricalcola i rating.</p>'; }
   if(vOn){ const fparts = []; if(RP.venue) fparts.push('giocati a <b>'+esc(RP.venue)+'</b>'); if(RP.manual) fparts.push(RP.manual === 'app' ? 'con abbinamenti suggeriti dall\'app' : 'con interventi manuali sugli abbinamenti');
     html += '<p class="hint">Solo i tornei '+fparts.join(' e ')+' ('+rl.filter(countsForRatings).length+'). I rating ripartono dal valore iniziale: non sono confrontabili con quelli generali.</p>'; }
-  if(rankMode !== 'adv') html += '<div class="btn-pair" style="margin-bottom:12px;"><button class="secondary" style="margin-top:0;" onclick="shareRankingWhatsApp()">Condividi classifica</button><button class="secondary" style="margin-top:0;" onclick="shareTrendsWhatsApp()">Condividi trend</button></div>';
+  if(rankMode === 'adv') html += '<div style="margin-bottom:12px;"><button class="secondary" style="margin-top:0;" onclick="shareRankingWhatsApp()">Condividi classifica</button></div>';
+  else html += '<div class="btn-pair" style="margin-bottom:12px;"><button class="secondary" style="margin-top:0;" onclick="shareRankingWhatsApp()">Condividi classifica</button><button class="secondary" style="margin-top:0;" onclick="shareTrendsWhatsApp()">Condividi trend</button></div>';
 
   if(rankMode === 'adv'){
     html += '<p class="hint"><b>Forza individuale.</b> L\'Elo dà lo stesso scarto a entrambi i compagni, quindi chi gioca spesso con un forte sale con lui. Qui tutti i giocatori vengono stimati <b>insieme</b>, con un calcolo ripetuto finché i valori si stabilizzano: conta come ognuno rende con compagni diversi e contro avversari diversi. Il ± è l\'incertezza: con poche partite e sempre gli stessi compagni è ampia, e i distacchi più piccoli del ± non sono significativi. <b>Δ Elo</b> = avanzata meno Elo: se è negativo l\'Elo lo premia più di quanto la sua forza individuale giustifichi (probabile luce riflessa), se è positivo il contrario. Più compagni diversi ha giocato, più il valore è affidabile.</p>';

@@ -38,8 +38,20 @@ test('classifica avanzata: un giocatore congelato resta fisso', () => {
 test('classifica avanzata: la vista si disegna con Δ Elo e il pulsante è nel selettore', () => {
   const app = scenario();
   const html = app.ev(`rankMode = 'adv'; rankingView()`);
-  assert.ok(html.includes('Avanzata') && html.includes('Δ Elo') && html.includes('Forza individuale'));
-  assert.ok(!html.includes('shareRankingWhatsApp'), 'niente condivisione per questa vista');
+  assert.ok(html.includes('Individuale') && html.includes('Δ Elo') && html.includes('Forza individuale'));
+  assert.ok(html.includes('shareRankingWhatsApp') && !html.includes('shareTrendsWhatsApp'));
+  assert.deepStrictEqual(app.errors, []);
+  app.close();
+});
+
+test('condivisione: classifica individuale e classifica squadre', () => {
+  const app = scenario();
+  const box = app.captureShare();
+  app.ev(`setRankMode('adv'); shareRankingWhatsApp()`);
+  assert.ok(box.text.includes('CLASSIFICA INDIVIDUALE') && box.text.includes('ΔElo'));
+  app.ev(`archive[0].mode = 'americano'; archive[0].players = Object.keys(roster); calc.teamRot = true; shareTeamRankingWhatsApp()`);
+  assert.ok(box.text.includes('CLASSIFICA SQUADRE') && /\d+% \(/.test(box.text), box.text);
+  assert.ok(app.ev('teamRankingView()').includes('shareTeamRankingWhatsApp'));
   assert.deepStrictEqual(app.errors, []);
   app.close();
 });
