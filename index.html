@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v68">
+<meta name="app-version" content="v70">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -822,15 +822,23 @@ function confirmDelete(key){
 // ---------- setup / draft teams ----------
 
 const LS_SUGGEST_BY = 'padel-suggestby-v1';
-let suggestBy = (function(){ try{ return localStorage.getItem(LS_SUGGEST_BY)==='glicko' ? 'glicko' : 'elo'; }catch(e){ return 'elo'; } })();
+let suggestBy = (function(){ try{ const m = localStorage.getItem(LS_SUGGEST_BY); return (m==='glicko' || m==='adv') ? m : 'elo'; }catch(e){ return 'elo'; } })();
+function suggestLabel(m){ m = m || suggestBy; return m === 'glicko' ? 'Glicko-2' : (m === 'adv' ? 'Individuale' : 'Elo'); }
 function setSuggestBy(m){
-  if(m !== 'elo' && m !== 'glicko') return;
+  if(m !== 'elo' && m !== 'glicko' && m !== 'adv') return;
   const change = () => { suggestBy = m; try{ localStorage.setItem(LS_SUGGEST_BY, m); }catch(e){} };
-  if(suggestBy !== m && onPlayScreen() && !pairEdit) regenerateRoundLive(change, null, m === 'glicko' ? 'abbina per Glicko-2' : 'abbina per Elo');
+  if(suggestBy !== m && onPlayScreen() && !pairEdit) regenerateRoundLive(change, null, 'abbina per ' + suggestLabel(m));
   else { change(); render(); }
 }
+// Americano/Messicano in corso: rigenera il turno con lo stesso metodo, per vedere un'altra variante senza forzare le coppie a mano.
+function rerollRound(){
+  if(!onPlayScreen() || pairEdit || !(t.mode && t.mode !== 'fixed')) return;
+  regenerateRoundLive(null, null, 'nuovo sorteggio per ' + suggestLabel());
+}
 function methodToggleHtml(){
-  return '<div class="seg" style="margin-bottom:10px;"><button class="small'+(suggestBy==='elo'?' on':'')+'" onclick="setSuggestBy(\'elo\')">Elo</button><button class="small'+(suggestBy==='glicko'?' on':'')+'" onclick="setSuggestBy(\'glicko\')">Glicko-2</button></div>'+winOnlyCheckboxHtml();
+  const reroll = (onPlayScreen() && t.mode && t.mode !== 'fixed' && (t.currentMatches||[]).length)
+    ? '<button class="secondary" style="margin:0 0 10px;" onclick="rerollRound()">🎲 Nuovo sorteggio</button>' : '';
+  return reroll + '<div class="seg" style="margin-bottom:10px;"><button class="small'+(suggestBy==='elo'?' on':'')+'" onclick="setSuggestBy(\'elo\')">Elo</button><button class="small'+(suggestBy==='glicko'?' on':'')+'" onclick="setSuggestBy(\'glicko\')">Glicko-2</button><button class="small'+(suggestBy==='adv'?' on':'')+'" onclick="setSuggestBy(\'adv\')">Individuale</button></div>'+winOnlyCheckboxHtml();
 }
 const LS_VARY_PAIRS = 'padel-varypairs-v1', LS_IGNORE_SIDES = 'padel-ignoresides-v1';
 let varyPairs = (function(){ try{ return localStorage.getItem(LS_VARY_PAIRS) !== '0'; }catch(e){ return true; } })();       // di default: un po' di casualità tra forze simili
@@ -896,7 +904,7 @@ function teamStrengthNames(names, gm){
 // Forza delle due coppie di una partita extra/turno (dai nomi scelti), col metodo attualmente selezionato (Elo/Glicko-2).
 function pairStrengthHtml(a1,a2,b1,b2){
   if(!a1 || !a2 || !b1 || !b2) return '';
-  const gm = strengthMap(), methodLabel = suggestBy === 'glicko' ? 'Glicko-2' : 'Elo';
+  const gm = strengthMap(), methodLabel = suggestLabel();
   const av = (strengthOfName(a1,gm) + strengthOfName(a2,gm)) / 2;
   const bv = (strengthOfName(b1,gm) + strengthOfName(b2,gm)) / 2;
   const diff = Math.abs(av - bv);
@@ -915,14 +923,14 @@ let lastSuggest = null;   // { by, sig } dell'ultimo "Suggerisci abbinamenti", p
 let suggestNote = '';
 // Forza usata per formare le coppie: Elo (dalla rubrica) oppure Glicko-2 (id -> rating).
 function strengthMap(){
-  if(suggestBy !== 'glicko') return null;
+  if(suggestBy === 'elo') return null;
   const m = {};
-  computeGlicko().forEach(r => { m[r.id] = r.rating; });
+  (suggestBy === 'adv' ? computeAdvanced(archive) : computeGlicko()).forEach(r => { m[r.id] = r.rating; });
   return m;
 }
 // Formazioni scelte prima dell'inizio (per deciderle con i coordinatori): squadre, giocatori e forza col metodo selezionato (Elo / Glicko-2).
 function shareFormations(){
-  const gm = strengthMap(), label = suggestBy === 'glicko' ? 'Glicko-2' : 'Elo';
+  const gm = strengthMap(), label = suggestLabel();
   const full = draftTeams.filter(dt => dt.p1 && dt.p1.trim() && dt.p2 && dt.p2.trim());
   if(!full.length){ setTeamMsg('Nessuna squadra completa da condividere.'); return; }
   let text = '🎾 *FORMAZIONI TORNEO PADEL*\n📅 ' + new Date().toLocaleDateString('it-IT', { day:'numeric', month:'long', year:'numeric' }) + '\n';
@@ -952,7 +960,7 @@ function draftRestoreHtml(){
   if(cur !== sg){ btn = '<button class="ghost" style="margin-bottom:8px;" onclick="restoreDraftSuggested()">↺ Ripristina i suggeriti</button>'; other = draftTeams; }
   else if(draftManual && draftSig(draftManual) !== sg){ btn = '<button class="ghost" style="margin-bottom:8px;" onclick="restoreDraftManual()">↻ Torna alla mia versione</button>'; other = draftManual; }
   if(!btn) return '';
-  const gm = strengthMap(), a = draftSpread(draftSugg, gm), b = draftSpread(other, gm), label = suggestBy === 'glicko' ? 'Glicko-2' : 'Elo';
+  const gm = strengthMap(), a = draftSpread(draftSugg, gm), b = draftSpread(other, gm), label = suggestLabel();
   return btn + ((a !== null && b !== null) ? '<p class="hint" style="margin:0 0 8px;">Differenza tra la squadra più forte e la più debole ('+label+'): suggeriti '+Math.round(a)+' · tua versione '+Math.round(b)+'.</p>' : '');
 }
 function draftApply(arr){ draftTeams = arr.map((d, i) => ({ id:i, p1:d.p1, p2:d.p2 })); suggestNote = ''; lastSuggest = null; render(); }
@@ -1049,7 +1057,7 @@ function suggestPairings(){
   }).sort((x,y)=> y.top - x.top);
   draftTeams = built.map((t,i) => ({ id:i, p1:t.a.name, p2:t.b.name }));
   const sig = draftTeams.map(d => d.p1+'|'+d.p2).join(';');
-  const label = suggestBy === 'glicko' ? 'Glicko-2' : 'Elo', other = suggestBy === 'glicko' ? 'Elo' : 'Glicko-2';
+  const label = suggestLabel(), other = lastSuggest ? suggestLabel(lastSuggest.by) : '';
   if(varyPairs){
     suggestNote = 'Coppie generate per '+label+' con un po\' di casualità tra giocatori di forza simile: premi ancora per un\'alternativa.';
   } else if(lastSuggest && lastSuggest.by !== suggestBy){
@@ -1380,13 +1388,14 @@ function liveNoteHtml(){ return liveNote ? '<p class="hint" style="margin:0 0 10
 // globalChange: impostazione globale (eseguita una volta); tournamentChange: parte nel torneo (eseguita dopo ogni ripristino dello stato).
 function regenerateRoundLive(globalChange, tournamentChange, what){
   liveNote = '';
+  const lead = String(what).indexOf('nuovo sorteggio') === 0 ? 'Nuovo sorteggio' : 'Impostazione cambiata ('+what+')';
   const rotating = !!(t.mode && t.mode !== 'fixed');
   const pre = (t.preRound && t.preRound.forRound === t.round) ? t.preRound : null;
   const pending = (t.currentMatches || []).length > 0;
   if(globalChange) globalChange();
   if(!pending || !pre){
     if(tournamentChange) tournamentChange();
-    liveNote = 'Impostazione cambiata ('+what+'): vale dal turno successivo'+(pending ? ' (questo turno non si può ricalcolare).' : '.');
+    liveNote = lead+': vale dal turno successivo'+(pending ? ' (questo turno non si può ricalcolare).' : '.');
     saveTournament(); render(); return;
   }
   const wasSuggested = !!(t.sugg && t.sugg.round === t.round && roundSig(t.currentMatches) === roundSig(t.sugg.matches));
@@ -1404,7 +1413,7 @@ function regenerateRoundLive(globalChange, tournamentChange, what){
   if(rotating) generateRotatingRound(rest); else generateRound(rest);
   const fresh = JSON.parse(JSON.stringify(t));
   if(wasSuggested && !typed){
-    liveNote = 'Impostazione cambiata ('+what+'): ' + (roundSig(t.currentMatches) === before ? 'gli abbinamenti del turno restano gli stessi.' : 'abbinamenti del turno ricalcolati.');
+    liveNote = lead+': ' + (roundSig(t.currentMatches) === before ? 'gli abbinamenti del turno restano gli stessi.' : 'abbinamenti del turno ricalcolati.');
     saveTournament(); render();
   } else {
     // il turno resta com'è (modifiche tue o punteggi già digitati): si aggiorna solo il suggerimento
@@ -1412,7 +1421,7 @@ function regenerateRoundLive(globalChange, tournamentChange, what){
     if(tournamentChange) tournamentChange();
     t.sugg = fresh.sugg; t.preRound = fresh.preRound;
     roundDraft = keepDraft; pairEdit = null;
-    liveNote = 'Impostazione cambiata ('+what+'): ' + (roundSig(fresh.sugg.matches) === roundSig(t.currentMatches)
+    liveNote = lead+': ' + (roundSig(fresh.sugg.matches) === roundSig(t.currentMatches)
       ? 'il turno è rimasto com\'è e coincide con i suggeriti.'
       : 'il turno è rimasto com\'è (hai già modificato o digitato qualcosa). Con "Ripristina i suggeriti" adotti i nuovi abbinamenti.');
     saveTournament(); render();
@@ -1759,7 +1768,7 @@ function roundRestoreHtml(){
   if(cur !== sg){ btn = '<button class="ghost" style="margin-bottom:10px;" onclick="restoreRoundSuggested()">↺ Ripristina i suggeriti</button>'; other = t.currentMatches; }
   else if(t.manualAlt && t.manualAlt.round === t.round && roundSig(t.manualAlt.matches) !== sg){ btn = '<button class="ghost" style="margin-bottom:10px;" onclick="restoreRoundManual()">↻ Torna alla mia versione</button>'; other = t.manualAlt.matches; }
   if(!btn) return '';
-  const gm = strengthMap(), label = suggestBy === 'glicko' ? 'Glicko-2' : 'Elo';
+  const gm = strengthMap(), label = suggestLabel();
   return btn + '<p class="hint" style="margin:0 0 10px;">Squilibrio di forza ('+label+', somma delle differenze tra le due parti di ogni partita): suggeriti '+Math.round(roundImbalance(t.sugg.matches, gm))+' · tua versione '+Math.round(roundImbalance(other, gm))+'. Ripristinando, i punteggi già digitati in questo turno si azzerano.</p>';
 }
 function applyPairEdit(fromRestore){
@@ -5644,7 +5653,8 @@ function renderMain(){
 
     if(pendingMode === 'fixed'){
       html += '<section><div class="seg"><button class="small'+(suggestBy==='elo'?' on':'')+'" onclick="setSuggestBy(\'elo\')">Abbina per Elo</button>';
-      html += '<button class="small'+(suggestBy==='glicko'?' on':'')+'" onclick="setSuggestBy(\'glicko\')">Abbina per Glicko-2</button></div>';
+      html += '<button class="small'+(suggestBy==='glicko'?' on':'')+'" onclick="setSuggestBy(\'glicko\')">Abbina per Glicko-2</button>';
+      html += '<button class="small'+(suggestBy==='adv'?' on':'')+'" onclick="setSuggestBy(\'adv\')">Abbina per Individuale</button></div>';
       html += winOnlyCheckboxHtml();
       html += '<label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13.5px;"><input type="checkbox" '+(varyPairs?'checked':'')+' onchange="setVaryPairs(this.checked)" style="width:18px;height:18px;accent-color:var(--ball);flex-shrink:0;" /> Un po\' di casualità (giocatori di forza simile si scambiano)</label>';
       html += '<label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13.5px;"><input type="checkbox" '+(ignoreSides?'checked':'')+' onchange="setIgnoreSides(this.checked)" style="width:18px;height:18px;accent-color:var(--ball);flex-shrink:0;" /> Ignora Sx/Dx dichiarati</label>';
@@ -5659,7 +5669,7 @@ function renderMain(){
       html += '</section>';
     } else {
       html += '<section><p class="section-label">Tipo di serata</p><label class="set-check" style="margin:0;"><input type="checkbox" '+(t.dynamic ? 'checked' : '')+' onchange="setDynamicTournament(this.checked)" /> <span>Serata dinamica: punteggi liberi (a punti o a tempo), conta solo chi vince. Nessun controllo sul risultato, al massimo 2 cifre.</span></label></section>';
-      html += '<section><p class="section-label">Forza per gli abbinamenti</p>'+methodToggleHtml()+'<p class="hint" style="margin:0;">Le coppie vengono equilibrate con il rating scelto (Elo o Glicko-2; con la spunta senza contare lo scarto di game). Valgono per tutta l\'app e si possono cambiare anche durante la serata: il turno in corso si ricalcola.</p></section>';
+      html += '<section><p class="section-label">Forza per gli abbinamenti</p>'+methodToggleHtml()+'<p class="hint" style="margin:0;">Le coppie vengono equilibrate con il rating scelto (Elo, Glicko-2 o Individuale; con la spunta senza contare lo scarto di game). Valgono per tutta l\'app e si possono cambiare anche durante la serata: il turno in corso si ricalcola.</p></section>';
       html += '<section><p class="section-label">Serata</p>'+venueFieldHtml()+'<div class="row2">';
       html += '<div><label class="field">Campi disponibili</label><input type="number" id="courtsInput" min="1" value="'+(t.courts||3)+'" oninput="updateCourts(this.value)" /></div>';
       html += '<div><label class="field">Turni da giocare</label><input type="number" id="roundsInput" min="1" value="'+(t.maxRounds||3)+'" oninput="updateRounds(this.value)" /></div>';
@@ -5677,7 +5687,7 @@ function renderMain(){
       const sVals = Object.values(tStr).filter(v => v !== null);
       const sMin = sVals.length ? Math.min(...sVals) : 0, sMax = sVals.length ? Math.max(...sVals) : 0;
       const sMean = sVals.length ? sVals.reduce((a,b)=>a+b,0)/sVals.length : 0;
-      const methodLabel = suggestBy === 'glicko' ? 'Glicko-2' : 'Elo';
+      const methodLabel = suggestLabel();
       const allStr = [];
       draftTeams.forEach(dt => [dt.p1, dt.p2].filter(x => x && x.trim()).forEach(nm => allStr.push(strengthOfName(nm, gmDraft))));
       const allMean = allStr.length ? allStr.reduce((a,b)=>a+b,0)/allStr.length : 0;
@@ -5739,7 +5749,7 @@ function renderMain(){
     if(t.currentMatches.length > 0){
       html += '<section><p class="section-label">Turno '+t.round+' di '+t.maxRounds+'</p>';
       if(pairEdit){
-        const gmRound = strengthMap(), methodLabel = suggestBy === 'glicko' ? 'Glicko-2' : 'Elo';
+        const gmRound = strengthMap(), methodLabel = suggestLabel();
         if(pairEdit.type === 'fixed'){
           const teams = pairEditTeams();
           const courtStrengths = pairEdit.courts.map(c => {
@@ -5785,7 +5795,7 @@ function renderMain(){
       html += repeatsLiveHtml();
       html += '<div class="btn-pair" style="margin-bottom:10px;"><button class="secondary" style="margin-top:0;" onclick="shareRoundWhatsApp()">Condividi turno</button><button class="secondary" style="margin-top:0;" onclick="openKiosk()">Tabellone live</button></div>';
       if(t.history && t.history.length){ html += '<button class="ghost" style="margin-bottom:10px;" onclick="shareLiveResults()">Condividi risultati finora</button>'; }
-      const gmRound2 = strengthMap(), methodLabel2 = suggestBy === 'glicko' ? 'Glicko-2' : 'Elo';
+      const gmRound2 = strengthMap(), methodLabel2 = suggestLabel();
       const courtStrengths = t.currentMatches.map(m => {
         if(rotating){
           const av = teamStrengthIds(m.pa, gmRound2), bv = teamStrengthIds(m.pb, gmRound2);
