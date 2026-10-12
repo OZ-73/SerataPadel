@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v65">
+<meta name="app-version" content="v66">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -260,7 +260,7 @@ const PROVISIONAL_MATCHES = K_NEW_UNTIL;
 function isProvisional(id, m){ const p = roster[id]; return !!p && (m === undefined ? (p.matches || 0) : m) < PROVISIONAL_MATCHES; }
 function provTag(id, m){ return isProvisional(id, m) ? '<span class="prov" title="Meno di '+PROVISIONAL_MATCHES+' partite: il rating può cambiare molto">prov.</span>' : ''; }
 const LS_RANK_MODE = 'padel-rankmode-v1';
-let rankMode = (function(){ try{ const m = localStorage.getItem(LS_RANK_MODE); return (m==='win' || m==='glicko') ? m : 'elo'; }catch(e){ return 'elo'; } })();
+let rankMode = (function(){ try{ const m = localStorage.getItem(LS_RANK_MODE); return (m==='win' || m==='glicko' || m==='adv') ? m : 'elo'; }catch(e){ return 'elo'; } })();
 // Filtri delle classifiche: luogo (solo i tornei giocati lì) e minimo di partite per Elo / Glicko-2.
 let rankVenue = '';
 function venuesInArchive(){ return Array.from(new Set(archive.map(a => a.venue).filter(Boolean))).sort((x, y) => x.localeCompare(y)); }
@@ -5318,6 +5318,53 @@ function playerProfileView(id){
   return html;
 }
 
+// ---------- Classifica avanzata: forza individuale stimata in modo iterativo ----------
+// L'Elo passa una sola volta sulle partite e dà lo stesso scarto a entrambi i compagni. Qui invece si stimano
+// TUTTI i giocatori insieme: si parte da zero e si ripete il calcolo (ogni giocatore viene riaggiustato dati i rating
+// attuali di compagni e avversari) finché i valori non si stabilizzano. Così il merito di una vittoria si ridistribuisce
+// sul giocatore che vince con tutti, non su chi gioca solo in coppia con un forte. Gli ❄ congelati restano punti fissi.
+const ADV_LAMBDA = 0.5;   // quanto si tiene il rating vicino alla partenza quando i dati sono pochi
+function computeAdvanced(list){
+  const K = Math.LN10 / 400, games = [], ids = [], per = {};
+  (list || archive).filter(countsForRatings).forEach(a => archiveGames(a).forEach(e => {
+    if(e.idsA.length && e.idsB.length) games.push({ A:e.idsA, B:e.idsB, y:gameScore(e.s1, e.s2, e.tb, e), w:e.weight });
+  }));
+  games.forEach((g,k) => g.A.concat(g.B).forEach(id => { if(!per[id]){ per[id] = []; ids.push(id); } per[id].push(k); }));
+  const base = {}, s = {}, fixed = {};
+  ids.forEach(id => { base[id] = startState(id).elo * K; s[id] = base[id]; fixed[id] = !!(roster[id] && roster[id].frozen); });
+  const mean = arr => arr.reduce((t,id) => t + s[id], 0) / arr.length;
+  const step = (id, upd) => {
+    let g = 2*ADV_LAMBDA*(s[id]-base[id]), h = 2*ADV_LAMBDA;
+    per[id].forEach(k => {
+      const m = games[k], inA = m.A.indexOf(id) >= 0, c = (inA ? 1 : -1) / (inA ? m.A.length : m.B.length);
+      const p = 1/(1+Math.exp(-(mean(m.A)-mean(m.B))));
+      g += m.w*(p-m.y)*c; h += m.w*p*(1-p)*c*c;
+    });
+    if(upd){ const d = Math.max(-1, Math.min(1, g/h)); s[id] -= d; return Math.abs(d); }
+    return h;
+  };
+  let sweeps = 0;
+  for(; sweeps < 500; sweeps++){
+    let mx = 0;
+    ids.forEach(id => { if(!fixed[id]) mx = Math.max(mx, step(id, true)); });
+    if(mx < 1e-7) break;
+  }
+  const out = ids.map(id => {
+    const partners = new Set();
+    per[id].forEach(k => { const m = games[k], mine = m.A.indexOf(id) >= 0 ? m.A : m.B; mine.forEach(x => { if(x !== id) partners.add(x); }); });
+    return { id, name: roster[id] ? roster[id].name : id, rating: s[id]/K, se: fixed[id] ? 0 : 1/Math.sqrt(step(id,false))/K, games: per[id].length, partners: partners.size, sweeps };
+  });
+  return out;
+}
+function positionsAdv(list, minP){
+  const rows = computeAdvanced(list)
+    .filter(r => !(roster[r.id] && roster[r.id].frozen) && r.games >= (minP || 1))
+    .sort((a,b)=> b.rating-a.rating || a.name.localeCompare(b.name));
+  const ranks = computeRanks(rows, r => Math.round(r.rating));
+  const m = {}; rows.forEach((r,i) => { m[r.id] = ranks[i].rank; });
+  return m;
+}
+
 function rankingView(){
   const RP = rankingPlayers(), all = RP.all, rl = RP.list, vOn = RP.on, minP = rankMode === 'win' ? 1 : playerMin();
   const diagBtn = recordsGroupHtml() + '<button class="ghost" style="margin-top:14px;" onclick="showDiag=true;showRanking=false;render();">Diagnostica rating</button>';
@@ -5325,14 +5372,41 @@ function rankingView(){
   if(activeKeys().some(k => roster[k].frozen)){ html += '<p class="hint">I giocatori con rating ❄ congelato non compaiono in classifica.</p>'; }
   html += '<div class="seg"><button class="small'+(rankMode==='elo'?' on':'')+'" onclick="setRankMode(\'elo\')">Elo</button>';
   html += '<button class="small'+(rankMode==='win'?' on':'')+'" onclick="setRankMode(\'win\')">% vittorie</button>';
-  html += '<button class="small'+(rankMode==='glicko'?' on':'')+'" onclick="setRankMode(\'glicko\')">Glicko-2</button></div>';
+  html += '<button class="small'+(rankMode==='glicko'?' on':'')+'" onclick="setRankMode(\'glicko\')">Glicko-2</button>';
+  html += '<button class="small'+(rankMode==='adv'?' on':'')+'" onclick="setRankMode(\'adv\')">Avanzata</button></div>';
   html += extrasToggleHtml();
   html += rankVenueSelectHtml() + rankManualSelectHtml() + (rankMode === 'win' ? '' : rankMinSelectHtml() + winOnlyCheckboxHtml());
   if(archive.some(isDynamic)) html += dynamicCheckboxHtml();
   if(rankMode !== 'win' && calc.winOnly){ html += '<p class="hint">Elo e Glicko-2 contano solo chi ha vinto: 6-0 e 6-5 valgono uguale. È un\'impostazione di tutta l\'app (anche Variazioni Elo e trend) e ricalcola i rating.</p>'; }
   if(vOn){ const fparts = []; if(RP.venue) fparts.push('giocati a <b>'+esc(RP.venue)+'</b>'); if(RP.manual) fparts.push(RP.manual === 'app' ? 'con abbinamenti suggeriti dall\'app' : 'con interventi manuali sugli abbinamenti');
     html += '<p class="hint">Solo i tornei '+fparts.join(' e ')+' ('+rl.filter(countsForRatings).length+'). I rating ripartono dal valore iniziale: non sono confrontabili con quelli generali.</p>'; }
-  html += '<div class="btn-pair" style="margin-bottom:12px;"><button class="secondary" style="margin-top:0;" onclick="shareRankingWhatsApp()">Condividi classifica</button><button class="secondary" style="margin-top:0;" onclick="shareTrendsWhatsApp()">Condividi trend</button></div>';
+  if(rankMode !== 'adv') html += '<div class="btn-pair" style="margin-bottom:12px;"><button class="secondary" style="margin-top:0;" onclick="shareRankingWhatsApp()">Condividi classifica</button><button class="secondary" style="margin-top:0;" onclick="shareTrendsWhatsApp()">Condividi trend</button></div>';
+
+  if(rankMode === 'adv'){
+    html += '<p class="hint"><b>Forza individuale.</b> L\'Elo dà lo stesso scarto a entrambi i compagni, quindi chi gioca spesso con un forte sale con lui. Qui tutti i giocatori vengono stimati <b>insieme</b>, con un calcolo ripetuto finché i valori si stabilizzano: conta come ognuno rende con compagni diversi e contro avversari diversi. Il ± è l\'incertezza: con poche partite e sempre gli stessi compagni è ampia, e i distacchi più piccoli del ± non sono significativi. <b>Δ Elo</b> = avanzata meno Elo: se è negativo l\'Elo lo premia più di quanto la sua forza individuale giustifichi (probabile luce riflessa), se è positivo il contrario. Più compagni diversi ha giocato, più il valore è affidabile.</p>';
+    const stE = computeEloStates(rl, false);
+    const rowsAll = computeAdvanced(rl).filter(r => !(roster[r.id] && roster[r.id].frozen)).sort((a,b)=> b.rating-a.rating || a.name.localeCompare(b.name));
+    const rows = rowsAll.filter(r => r.games >= minP);
+    if(rows.length === 0){
+      html += '<p class="roster-empty">'+(vOn ? 'Nessuna partita archiviata con questo filtro.' : 'Nessun giocatore con partite sufficienti.')+'</p>';
+    } else {
+      html += '<div class="rank-list">';
+      const ranks = computeRanks(rows, r => Math.round(r.rating));
+      const mvA = movement(positionsAdv, rl, minP);
+      rows.forEach((r,i) => {
+        const rk = ranks[i], el = stE[r.id] ? stE[r.id].elo : null, dl = el === null ? null : Math.round(r.rating - el);
+        html += '<div class="rank-row'+(rk.rank===1?' top1':'')+'"><span class="rank-num'+(rk.tied?' tied':'')+'">'+rankLabel(rk)+'</span>';
+        html += '<span class="rank-name clickable" onclick="openPlayerProfile('+jsArg(r.id)+')">'+esc(r.name)+'</span>'+provTag(r.id, vOn ? r.games : undefined);
+        html += arrow(mvA, r.id);
+        html += '<span class="rank-elo">'+Math.round(r.rating)+'</span>';
+        html += '<span class="rank-meta">±'+Math.round(r.se)+' · '+r.games+' · '+r.partners+' comp.'+(dl === null ? '' : ' · Δ Elo '+(dl > 0 ? '+' : (dl < 0 ? '−' : ''))+Math.abs(dl))+'</span></div>';
+      });
+      html += '</div>';
+    }
+    html += diagBtn;
+    html += '</section>';
+    return html;
+  }
 
   if(rankMode === 'glicko'){
     html += '<p class="hint">Rating ricalcolato dai tornei archiviati (ogni torneo chiuso è un periodo di valutazione, i tornei di prova sono esclusi). Il ± indica quanto il rating è incerto: scende con le partite e risale se salti delle serate. Ogni partita vale in base al punteggio (conclusa: da 0,81 per il 6-5 a 1 per il 6-0; interrotta o pari: tra 0,5 e 0,75). Parte dal rating iniziale (come l\'Elo); i congelati ❄ restano fissi e non compaiono in classifica. Le frecce mostrano il cambio di posizione dovuto all\'ultimo torneo archiviato.</p>';
