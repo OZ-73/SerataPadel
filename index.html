@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v67">
+<meta name="app-version" content="v68">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2710,7 +2710,7 @@ function applyImportedData(data){
   ensureArchiveIds();
   recomputeRatings();
   if(rf) saveRoster();
-  if(af) saveArchive();
+  if(af){ saveArchive(); markBackup(); }   // i tornei appena importati arrivano da un backup: non servono altri promemoria
   ratingMigration = false;
 }
 function handleImportFile(file){
@@ -4561,6 +4561,27 @@ function glickoPredictions(opts){
   }, opts);
   return log;
 }
+// Come per l'Elo: ogni partita dal 2° torneo in poi è prevista con i rating individuali calcolati sui tornei precedenti.
+function individualPredictions(opts){
+  const log = [], K = Math.LN10 / 400;
+  let pi = 0;
+  archive.forEach((a, i) => {
+    if(!countsForRatings(a)) return;
+    if(pi > 0){
+      const rows = {};
+      computeAdvanced(archive.slice(0, i), opts).forEach(r => { rows[r.id] = r.rating; });
+      const rt = id => rows[id] !== undefined ? rows[id] : startState(id).elo;
+      const avg = arr => arr.reduce((t, id) => t + rt(id), 0) / arr.length;
+      archiveGames(a).forEach(e => {
+        const res = matchWinner(e.s1, e.s2, e.tb);
+        if(res === 0.5 || !e.idsA.length || !e.idsB.length) return;
+        log.push({ p: 1/(1+Math.exp(-K*(avg(e.idsA)-avg(e.idsB)))), y: res });
+      });
+    }
+    pi++;
+  });
+  return log;
+}
 function predictionStats(log){
   let brier = 0, ll = 0, hit = 0, decisive = 0;
   log.forEach(r => {
@@ -4581,7 +4602,9 @@ function diagView(){
     ['Elo, scarto, K doppio', eloPredictions({scoreFn:marginScore, kScale:2})],
     ['Elo, solo V/S', eloPredictions({scoreFn:scoreWL}), !!calc.winOnly],
     ['Glicko-2, scarto di game', glickoPredictions({scoreFn:marginScore}), !calc.winOnly],
-    ['Glicko-2, solo V/S', glickoPredictions({scoreFn:scoreWL}), !!calc.winOnly]
+    ['Glicko-2, solo V/S', glickoPredictions({scoreFn:scoreWL}), !!calc.winOnly],
+    ['Individuale, scarto di game', individualPredictions({scoreFn:marginScore}), !calc.winOnly],
+    ['Individuale, solo V/S', individualPredictions({scoreFn:scoreWL}), !!calc.winOnly]
   ];
   const n = variants[0][1].length;
   const f3 = x => x === null ? '—' : x.toFixed(3).replace('.', ',');
@@ -5364,10 +5387,10 @@ function playerProfileView(id){
 // attuali di compagni e avversari) finché i valori non si stabilizzano. Così il merito di una vittoria si ridistribuisce
 // sul giocatore che vince con tutti, non su chi gioca solo in coppia con un forte. Gli ❄ congelati restano punti fissi.
 const ADV_LAMBDA = 0.5;   // quanto si tiene il rating vicino alla partenza quando i dati sono pochi
-function computeAdvanced(list){
+function computeAdvanced(list, opts){
   const K = Math.LN10 / 400, games = [], ids = [], per = {};
   (list || archive).filter(countsForRatings).forEach(a => archiveGames(a).forEach(e => {
-    if(e.idsA.length && e.idsB.length) games.push({ A:e.idsA, B:e.idsB, y:gameScore(e.s1, e.s2, e.tb, e), w:e.weight });
+    if(e.idsA.length && e.idsB.length) games.push({ A:e.idsA, B:e.idsB, y:((opts && opts.scoreFn) || gameScore)(e.s1, e.s2, e.tb, e), w:e.weight });
   }));
   games.forEach((g,k) => g.A.concat(g.B).forEach(id => { if(!per[id]){ per[id] = []; ids.push(id); } per[id].push(k); }));
   const base = {}, s = {}, fixed = {};
