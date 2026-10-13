@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v70">
+<meta name="app-version" content="v71">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -135,7 +135,8 @@
   .extra-tag{display:block;font-size:11px;color:var(--ink-dim);font-family:var(--font-body);font-weight:400;margin-top:2px;}
   .delta.wide{width:46px;}
   .seg{display:flex;gap:8px;margin-bottom:10px;}
-  .seg button{flex:1;font-size:13px;padding:10px;}
+  .seg button{flex:1;min-width:0;font-size:13px;padding:10px;}
+  @media(max-width:380px){.seg button{padding:10px 6px;}}
   button.small.on{background:var(--ball);color:#1C2400;border-color:var(--ball);font-weight:600;}
   .resting{font-size:12.5px;color:var(--ink-dim);margin:8px 0 0;}
 
@@ -5652,9 +5653,9 @@ function renderMain(){
     }
 
     if(pendingMode === 'fixed'){
-      html += '<section><div class="seg"><button class="small'+(suggestBy==='elo'?' on':'')+'" onclick="setSuggestBy(\'elo\')">Abbina per Elo</button>';
-      html += '<button class="small'+(suggestBy==='glicko'?' on':'')+'" onclick="setSuggestBy(\'glicko\')">Abbina per Glicko-2</button>';
-      html += '<button class="small'+(suggestBy==='adv'?' on':'')+'" onclick="setSuggestBy(\'adv\')">Abbina per Individuale</button></div>';
+      html += '<section><div class="seg" style="flex-wrap:wrap;"><button class="small'+(suggestBy==='elo'?' on':'')+'" style="flex:1 1 auto;" onclick="setSuggestBy(\'elo\')">Abbina per Elo</button>';
+      html += '<button class="small'+(suggestBy==='glicko'?' on':'')+'" style="flex:1 1 auto;" onclick="setSuggestBy(\'glicko\')">Abbina per Glicko-2</button>';
+      html += '<button class="small'+(suggestBy==='adv'?' on':'')+'" style="flex:1 1 auto;" onclick="setSuggestBy(\'adv\')">Abbina per Individuale</button></div>';
       html += winOnlyCheckboxHtml();
       html += '<label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13.5px;"><input type="checkbox" '+(varyPairs?'checked':'')+' onchange="setVaryPairs(this.checked)" style="width:18px;height:18px;accent-color:var(--ball);flex-shrink:0;" /> Un po\' di casualità (giocatori di forza simile si scambiano)</label>';
       html += '<label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13.5px;"><input type="checkbox" '+(ignoreSides?'checked':'')+' onchange="setIgnoreSides(this.checked)" style="width:18px;height:18px;accent-color:var(--ball);flex-shrink:0;" /> Ignora Sx/Dx dichiarati</label>';
