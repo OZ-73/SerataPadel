@@ -57,3 +57,13 @@ test('export Excel: colonna Fuori classifica nel foglio Giocatori', () => {
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8');
   assert.match(src, /'Lato','Fuori classifica'\]/);
 });
+
+test('fuori classifica: le squadre con quel giocatore spariscono dalla classifica squadre', () => {
+  const app = withTournament();
+  const n = () => app.ev(`teamRankList().list.map(x => x.name)`);
+  assert.ok(n().some(x => x.includes('Anna')), 'prima: la squadra di Anna c\'è');
+  app.ev(`roster[findIdByName('Anna')].outRank = true;`);
+  assert.ok(!n().some(x => x.includes('Anna')), 'dopo: la squadra di Anna non c\'è');
+  assert.ok(n().some(x => x.includes('Carlo')), 'le altre squadre restano');
+  app.close();
+});

@@ -2926,10 +2926,12 @@ function computeRanks(list, keyFn){
 }
 function rankLabel(r){ return (r.tied ? '=' : '') + r.rank; }
 
+// Una squadra con un giocatore fuori classifica non compare nella classifica squadre.
+function teamHasOutRank(tm){ return (tm.ids || []).some(id => roster[id] && roster[id].outRank); }
 function teamRankList(){
   const minM = calc.teamMin || 1;
   const vTeam = activeRankVenue(), fOn = rankFilterActive();
-  const list = teamStats(rankArchive(), fOn ? (!activeRankManual() && vTeam ? t.venue === vTeam : false) : undefined, calc.teamRot).filter(x=>x.matches>=minM).sort((a,b)=>{
+  const list = teamStats(rankArchive(), fOn ? (!activeRankManual() && vTeam ? t.venue === vTeam : false) : undefined, calc.teamRot).filter(x=>x.matches>=minM && !teamHasOutRank(x)).sort((a,b)=>{
     const wa = a.wins/a.matches, wb = b.wins/b.matches;
     return wb-wa || (b.setsWon-b.setsLost)-(a.setsWon-a.setsLost) || a.name.localeCompare(b.name);
   });
@@ -4298,7 +4300,7 @@ function positionsGlicko(list, minP){
   return m;
 }
 function positionsTeams(list){
-  const rows = teamStats(list, false, calc.teamRot).filter(x=>x.matches>=(calc.teamMin||1)).sort((a,b)=>{
+  const rows = teamStats(list, false, calc.teamRot).filter(x=>x.matches>=(calc.teamMin||1) && !teamHasOutRank(x)).sort((a,b)=>{
     const wa = a.wins/a.matches, wb = b.wins/b.matches;
     return wb-wa || (b.setsWon-b.setsLost)-(a.setsWon-a.setsLost) || a.name.localeCompare(b.name);
   });
