@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v72">
+<meta name="app-version" content="v73">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -291,7 +291,7 @@ function rankMinSelectHtml(){
 // Giocatori della classifica: con il filtro luogo, elo/partite/vittorie vengono ricalcolati solo sui tornei di quel luogo.
 function rankingPlayers(){
   const on = rankFilterActive();
-  let all = activeKeys().map(k => ({ key:k, ...roster[k] })).filter(p => !p.frozen);
+  let all = activeKeys().map(k => ({ key:k, ...roster[k] })).filter(p => !p.frozen && !p.outRank);
   if(!on) return { all, list: archive, venue: '', manual: '', on: false };
   const list = rankArchive();
   const st = computeEloStates(list, false);
@@ -327,7 +327,7 @@ function normalizeRoster(obj){
     out = {};
     Object.values(r).forEach(p => {
       const id = (p && p.id) || newId(new Set(Object.keys(out)));
-      out[id] = { name:p.name, matches:p.matches||0, wins:p.wins||0, elo: p.elo!==undefined?p.elo:START_ELO, elo0: p.elo0!==undefined?p.elo0:START_ELO, side:p.side||'', hidden: !!p.hidden, frozen: !!p.frozen };
+      out[id] = { name:p.name, matches:p.matches||0, wins:p.wins||0, elo: p.elo!==undefined?p.elo:START_ELO, elo0: p.elo0!==undefined?p.elo0:START_ELO, side:p.side||'', hidden: !!p.hidden, frozen: !!p.frozen, outRank: !!p.outRank };
     });
     ratingMigration = true;
   }
@@ -336,6 +336,7 @@ function normalizeRoster(obj){
     if(out[k].elo===undefined) out[k].elo = START_ELO;
     if(out[k].side===undefined) out[k].side = '';
     if(out[k].frozen===undefined) out[k].frozen = false;
+    if(out[k].outRank===undefined) out[k].outRank = false;
     if(out[k].matches===undefined) out[k].matches = 0;
     if(out[k].wins===undefined) out[k].wins = 0;
   });
@@ -466,7 +467,7 @@ function upsertPlayer(name){
   let id = findIdByName(clean);
   if(!id){
     id = newId(new Set(Object.keys(roster)));
-    roster[id] = { name:clean, matches:0, wins:0, elo:START_ELO, elo0:START_ELO, side:'', frozen:false };
+    roster[id] = { name:clean, matches:0, wins:0, elo:START_ELO, elo0:START_ELO, side:'', frozen:false, outRank:false };
   }
   const p = roster[id];
   if(p.hidden) p.hidden = false;   // un giocatore eliminato che torna riprende la sua storia
@@ -482,6 +483,8 @@ function shuffle(arr){
   return a;
 }
 function activeKeys(){ return Object.keys(roster).filter(k => !roster[k].hidden); }
+// Fuori classifica: congelato oppure escluso a mano. Chi è escluso a mano continua a ricevere un rating vero (i suoi risultati contano per compagni e avversari), ma non compare nelle classifiche.
+function rankOut(id){ const p = roster[id]; return !!(p && (p.frozen || p.outRank)); }
 function setSide(key, val){ if(roster[key]){ roster[key].side = val; saveRoster(); } render(); }
 function eloOf(name){ const id = findIdByName(name); return id ? (roster[id].elo||START_ELO) : START_ELO; }
 function winRate(p){ return p.matches>0 ? p.wins/p.matches : null; }
@@ -790,6 +793,7 @@ function saveRename(key){
   const ratingEl = document.getElementById('ratingedit_'+key);
   const newRating = ratingEl ? parseFloat(String(ratingEl.value).replace(',','.')) : NaN;
   const frozenEl = document.getElementById('frozenedit_'+key);
+  const outEl = document.getElementById('outedit_'+key);
   const p = roster[key];
   p.name = val;
   let ratingChanged = false;
@@ -798,6 +802,7 @@ function saveRename(key){
     if(r !== p.elo0){ p.elo0 = r; ratingChanged = true; }
   }
   if(frozenEl && !!frozenEl.checked !== !!p.frozen){ p.frozen = !!frozenEl.checked; ratingChanged = true; }
+  if(outEl){ p.outRank = !!outEl.checked; }   // solo visibilità: non cambia nessun calcolo
   if(ratingChanged){
     // Il rating iniziale cambia tutta la storia derivata: ricalcolo tutto dall'archivio.
     recomputeRatings();
@@ -2095,8 +2100,8 @@ function exportSheets(){
     ['Il foglio Comandi contiene già le impostazioni di calcolo di quando hai esportato (data inizio, rating di partenza, serie e record, solo V/S, soglia): importando il file vengono riapplicate. Cancella le righe che non vuoi ripristinare. Anche il backup contiene queste impostazioni.'],
     ['L\'esportazione lascia il foglio Comandi vuoto: svuotalo anche tu dopo l\'uso, per non rieseguire gli stessi comandi.']
   ] });
-  sheets.push({ name:'Giocatori', freeze:true, filter:true, widths:[24,16,12,12,8],
-    rows:[['Nome','Rating iniziale','Congelato','Nascosto','Lato']].concat(players.map(p => [p.name, p.elo0, yn(p.frozen), yn(p.hidden), p.side || ''])) });
+  sheets.push({ name:'Giocatori', freeze:true, filter:true, widths:[24,16,12,12,8,16],
+    rows:[['Nome','Rating iniziale','Congelato','Nascosto','Lato','Fuori classifica']].concat(players.map(p => [p.name, p.elo0, yn(p.frozen), yn(p.hidden), p.side || '', yn(p.outRank)])) });
   sheets.push({ name:'Tornei', freeze:true, filter:true, widths:[14,16,8,14,10,28,12],
     rows:[['Torneo','Modalità','Campi','Turni giocati','Escluso','Luogo','Formato']].concat(archive.map((a,i) => {
       const md = a.mode || 'fixed';
@@ -2249,7 +2254,7 @@ function buildImportPlan(sheets, fileName){
   const useName = raw => { const nm = cleanText(String(raw)).replace(/\s+/g, ' ').trim(); const k = normName(nm); if(k && !idByNorm[k] && !wanted.has(k)) wanted.set(k, nm); return nm; };
 
   // Giocatori
-  const gSheet = table('giocatori', 'Giocatori', ['Nome'], ['Rating iniziale','Congelato','Nascosto','Lato']);
+  const gSheet = table('giocatori', 'Giocatori', ['Nome'], ['Rating iniziale','Congelato','Nascosto','Lato','Fuori classifica']);
   (gSheet || []).forEach(r => {
     const nm = useName(r['Nome']); if(!nm) return;
     const id = idByNorm[normName(nm)], p = id ? roster[id] : null, u = { name:nm }, ch = [];
@@ -2258,6 +2263,7 @@ function buildImportPlan(sheets, fileName){
     else if(rt !== null && (!p || Math.round(rt*10)/10 !== p.elo0)){ u.elo0 = Math.round(rt*10)/10; if(p) ch.push('rating iniziale '+p.elo0+' → '+u.elo0); }
     if(r['Congelato'] !== '' && xlYes(r['Congelato']) !== !!(p && p.frozen) && (p || xlYes(r['Congelato']))){ u.frozen = xlYes(r['Congelato']); if(p) ch.push(u.frozen ? 'congelato' : 'scongelato'); }
     if(r['Nascosto'] !== '' && xlYes(r['Nascosto']) !== !!(p && p.hidden) && (p || xlYes(r['Nascosto']))){ u.hidden = xlYes(r['Nascosto']); if(p) ch.push(u.hidden ? 'nascosto' : 'visibile'); }
+    if(r['Fuori classifica'] !== undefined && r['Fuori classifica'] !== '' && xlYes(r['Fuori classifica']) !== !!(p && p.outRank) && (p || xlYes(r['Fuori classifica']))){ u.outRank = xlYes(r['Fuori classifica']); if(p) ch.push(u.outRank ? 'fuori classifica' : 'di nuovo in classifica'); }
     const side = String(r['Lato']).trim();
     if(side !== '' && /^(Sx|Dx)$/i.test(side) && (side.charAt(0).toUpperCase()+'x') !== (p && p.side)){ u.side = side.charAt(0).toUpperCase()+'x'; if(p) ch.push('lato '+u.side); }
     if(Object.keys(u).length > 1){ plan.playerUpdates.push(u); if(p) plan.playerChanges.push(nm+': '+ch.join(', ')); }
@@ -2593,6 +2599,7 @@ function applyImportPlan(){
     if(u.elo0 !== undefined) p.elo0 = u.elo0;
     if(u.frozen !== undefined) p.frozen = u.frozen;
     if(u.hidden !== undefined) p.hidden = u.hidden;
+    if(u.outRank !== undefined) p.outRank = u.outRank;
     if(u.side !== undefined) p.side = u.side;
   });
   const fresh = [];
@@ -4234,6 +4241,7 @@ function rosterPanel(){
         html += '<input class="rname rename-input" id="rename_'+p.key+'" type="text" value="'+esc(p.name)+'" onkeydown="if(event.key===\'Enter\'){saveRename('+jsArg(p.key)+')}" />';
         html += '<input class="rating-input" id="ratingedit_'+p.key+'" type="number" step="1" inputmode="decimal" aria-label="Rating iniziale" value="'+(Math.round((p.elo0===undefined?START_ELO:p.elo0)*10)/10)+'" onkeydown="if(event.key===\'Enter\'){saveRename('+jsArg(p.key)+')}" />';
         html += '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;margin-left:4px;" title="Il suo rating resta fisso al valore qui sopra: non si aggiorna mai coi risultati."><input type="checkbox" id="frozenedit_'+p.key+'" '+(p.frozen?'checked':'')+' style="width:16px;height:16px;accent-color:var(--ball);" /> ❄ Congelato</label>';
+        html += '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;margin-left:4px;" title="Non compare nelle classifiche, ma i suoi risultati contano ancora per compagni e avversari."><input type="checkbox" id="outedit_'+p.key+'" '+(p.outRank?'checked':'')+' style="width:16px;height:16px;accent-color:var(--ball);" /> 🚫 Fuori classifica</label>';
         html += '<div class="actions"><button class="small" onclick="saveRename('+jsArg(p.key)+')">Salva</button></div>';
       } else if(deleteArmedKey === p.key){
         html += '<span class="rname rname-text">Eliminare '+p.name+'?</span>';
@@ -4243,14 +4251,14 @@ function rosterPanel(){
         html += '<select class="side-select" onchange="setSide('+jsArg(p.key)+',this.value)">';
         [['','–'],['D','Dx'],['S','Sx']].forEach(([v,label]) => { html += '<option value="'+v+'"'+((p.side||'')===v?' selected':'')+'>'+label+'</option>'; });
         html += '</select>';
-        html += '<span class="wr">'+Math.round(p.elo||START_ELO)+(p.frozen?' ❄':'')+'</span>';
+        html += '<span class="wr">'+Math.round(p.elo||START_ELO)+(p.frozen?' ❄':'')+(p.outRank?' 🚫':'')+'</span>';
         html += '<div class="actions"><button class="small" onclick="startRename('+jsArg(p.key)+')">Modifica</button><button class="small danger" onclick="askDelete('+jsArg(p.key)+')">✕</button></div>';
       }
       html += '</div>';
     });
     html += '</div>';
     if(editingKey && roster[editingKey]){
-      html += '<p class="hint" style="margin-top:8px;">Modifica: nome, rating iniziale (da qui partono Elo e Glicko-2, di base 1000) e ❄ Congelato (rating fisso, fuori classifica — utile per ospiti di categoria superiore).</p>';
+      html += '<p class="hint" style="margin-top:8px;">Modifica: nome, rating iniziale (da qui partono Elo e Glicko-2, di base 1000) ❄ Congelato (rating fisso, fuori classifica — utile per ospiti di categoria superiore) e 🚫 Fuori classifica (non compare nelle classifiche, ma i suoi risultati contano ancora per gli altri — utile per ospiti di passaggio).</p>';
     }
     if(rosterMsg){ html += '<p class="err" style="margin-top:6px;">'+esc(rosterMsg)+'</p>'; }
   }
@@ -4263,7 +4271,7 @@ function rosterPanel(){
 function positionsElo(list, minP){
   const st = computeEloStates(list, false);
   const rows = activeKeys()
-    .map(id => { const p = roster[id]; return { id, name:p.name, elo: st[id] ? st[id].elo : p.elo0, matches: st[id] ? st[id].matches : (p.matches0||0), frozen:!!p.frozen }; })
+    .map(id => { const p = roster[id]; return { id, name:p.name, elo: st[id] ? st[id].elo : p.elo0, matches: st[id] ? st[id].matches : (p.matches0||0), frozen:!!(p.frozen || p.outRank) }; })
     .filter(r => r.matches > 0 && r.matches >= (minP || 1) && !r.frozen)
     .sort((a,b)=> b.elo-a.elo || a.name.localeCompare(b.name));
   const ranks = computeRanks(rows, r => Math.round(r.elo));
@@ -4275,7 +4283,7 @@ function positionsWin(list){
   const rows = activeKeys().map(id => {
     const p = roster[id];
     const sv = st[id] || { matches:p.matches0||0, wins:p.wins0||0 };
-    return { id, name:p.name, matches:sv.matches, wr: sv.matches>0 ? sv.wins/sv.matches : null, frozen:!!p.frozen };
+    return { id, name:p.name, matches:sv.matches, wr: sv.matches>0 ? sv.wins/sv.matches : null, frozen:!!(p.frozen || p.outRank) };
   }).filter(r => r.matches >= MIN_MATCHES_WINRATE && !r.frozen).sort((a,b)=> b.wr-a.wr || b.matches-a.matches || a.name.localeCompare(b.name));
   const ranks = computeRanks(rows, r => Math.round(r.wr*100));
   const m = {}; rows.forEach((r,i) => { m[r.id] = ranks[i].rank; });
@@ -4283,7 +4291,7 @@ function positionsWin(list){
 }
 function positionsGlicko(list, minP){
   const rows = computeGlicko(list)
-    .filter(r => !(roster[r.id] && roster[r.id].frozen) && r.games >= (minP || 1))
+    .filter(r => !rankOut(r.id) && r.games >= (minP || 1))
     .sort((a,b)=> b.rating-a.rating || a.name.localeCompare(b.name));
   const ranks = computeRanks(rows, r => Math.round(r.rating));
   const m = {}; rows.forEach((r,i) => { m[r.id] = ranks[i].rank; });
@@ -4850,7 +4858,7 @@ function shareRankingWhatsApp(){
   if(rankMode === 'adv'){
     text = '📊 *CLASSIFICA INDIVIDUALE*\n(forza di ognuno, separata dal compagno)\n\n';
     const stE = computeEloStates(rl, false);
-    const rows = computeAdvanced(rl).filter(r => !(roster[r.id] && roster[r.id].frozen) && r.games >= minP).sort((a,b)=> b.rating-a.rating || a.name.localeCompare(b.name));
+    const rows = computeAdvanced(rl).filter(r => !rankOut(r.id) && r.games >= minP).sort((a,b)=> b.rating-a.rating || a.name.localeCompare(b.name));
     const ranks = computeRanks(rows, r => Math.round(r.rating));
     const mv = movement(positionsAdv, rl, minP);
     lines.push(padR('#', 4) + padR('Giocatore', 12) + padL('Rating', 7) + '|' + padL('±', 4) + padL('ΔElo', 5) + padL('Trend', 6));
@@ -4860,7 +4868,7 @@ function shareRankingWhatsApp(){
     });
   } else if(rankMode === 'glicko'){
     text = '📊 *CLASSIFICA GLICKO-2*\n\n';
-    const rows = computeGlicko(rl).filter(r => !(roster[r.id] && roster[r.id].frozen) && r.games >= minP).sort((a,b)=> b.rating-a.rating || a.name.localeCompare(b.name));
+    const rows = computeGlicko(rl).filter(r => !rankOut(r.id) && r.games >= minP).sort((a,b)=> b.rating-a.rating || a.name.localeCompare(b.name));
     const ranks = computeRanks(rows, r => Math.round(r.rating));
     const mv = movement(positionsGlicko, rl, minP);
     lines.push(padR('#', 4) + padR('Giocatore', 12) + padL('Rating', 7) + '|' + padL('±RD', 4) + padL('Trend', 6));
@@ -5156,7 +5164,7 @@ function recordsProfileHtml(id, eloHistory, glickoHistory){
 }
 function recordsGroupHtml(){
   const { P, pairs } = computeRecords();
-  const ids = Object.keys(P).filter(id => roster[id] && !roster[id].hidden && !roster[id].frozen);
+  const ids = Object.keys(P).filter(id => roster[id] && !roster[id].hidden && !rankOut(id));
   if(!ids.length) return '';
   const nm = id => roster[id].name;
   const top = (arr, f) => arr.slice().sort((x, y) => f(y) - f(x) || nm(x).localeCompare(nm(y)))[0];
@@ -5177,7 +5185,7 @@ function recordsGroupHtml(){
     archive.forEach(a => { if(!countsForRatings(a)) return; (a.ratingChanges || []).forEach(c => { if(ids.includes(c.id) && (!pk || c.after > pk.val)) pk = { id:c.id, val:c.after, d:dateKey(a.date) }; }); });
   }
   if(pk) h += recRow('Rating massimo ('+(gl ? 'Glicko-2' : 'Elo')+')', nm(pk.id), Math.round(pk.val), 'raggiunto il '+itDate(pk.d));
-  const bp = Object.values(pairs).filter(c => c.m >= 6 && c.ids.every(i => roster[i] && !roster[i].hidden)).sort((x, y) => y.w/y.m - x.w/x.m || y.m - x.m)[0];
+  const bp = Object.values(pairs).filter(c => c.m >= 6 && c.ids.every(i => roster[i] && !roster[i].hidden && !roster[i].outRank)).sort((x, y) => y.w/y.m - x.w/x.m || y.m - x.m)[0];
   if(bp) h += recRow('Miglior coppia (almeno 6 partite)', bp.ids.map(nm).sort((x, y) => x.localeCompare(y)).join(' & '), Math.round(bp.w/bp.m*100)+'%', bp.m+' partite insieme');
   const mm = top(ids, id => P[id].matches), mt = top(ids, id => P[id].tournaments);
   h += recRow('Più partite giocate', nm(mm), P[mm].matches, '');
@@ -5431,7 +5439,7 @@ function computeAdvanced(list, opts){
 }
 function positionsAdv(list, minP){
   const rows = computeAdvanced(list)
-    .filter(r => !(roster[r.id] && roster[r.id].frozen) && r.games >= (minP || 1))
+    .filter(r => !rankOut(r.id) && r.games >= (minP || 1))
     .sort((a,b)=> b.rating-a.rating || a.name.localeCompare(b.name));
   const ranks = computeRanks(rows, r => Math.round(r.rating));
   const m = {}; rows.forEach((r,i) => { m[r.id] = ranks[i].rank; });
@@ -5442,7 +5450,7 @@ function rankingView(){
   const RP = rankingPlayers(), all = RP.all, rl = RP.list, vOn = RP.on, minP = rankMode === 'win' ? 1 : playerMin();
   const diagBtn = recordsGroupHtml() + '<button class="ghost" style="margin-top:14px;" onclick="showDiag=true;showRanking=false;render();">Diagnostica rating</button>';
   let html = '<section><p class="section-label">Classifica giocatori</p>';
-  if(activeKeys().some(k => roster[k].frozen)){ html += '<p class="hint">I giocatori con rating ❄ congelato non compaiono in classifica.</p>'; }
+  if(activeKeys().some(k => rankOut(k))){ html += '<p class="hint">I giocatori con rating ❄ congelato o 🚫 fuori classifica non compaiono in classifica.</p>'; }
   html += '<div class="seg"><button class="small'+(rankMode==='elo'?' on':'')+'" onclick="setRankMode(\'elo\')">Elo</button>';
   html += '<button class="small'+(rankMode==='win'?' on':'')+'" onclick="setRankMode(\'win\')">% vittorie</button>';
   html += '<button class="small'+(rankMode==='glicko'?' on':'')+'" onclick="setRankMode(\'glicko\')">Glicko-2</button>';
@@ -5459,7 +5467,7 @@ function rankingView(){
   if(rankMode === 'adv'){
     html += '<p class="hint"><b>Forza individuale.</b> L\'Elo dà lo stesso scarto a entrambi i compagni, quindi chi gioca spesso con un forte sale con lui. Qui tutti i giocatori vengono stimati <b>insieme</b>, con un calcolo ripetuto finché i valori si stabilizzano: conta come ognuno rende con compagni diversi e contro avversari diversi. Il ± è l\'incertezza: con poche partite e sempre gli stessi compagni è ampia, e i distacchi più piccoli del ± non sono significativi. <b>Δ Elo</b> = avanzata meno Elo: se è negativo l\'Elo lo premia più di quanto la sua forza individuale giustifichi (probabile luce riflessa), se è positivo il contrario. Più compagni diversi ha giocato, più il valore è affidabile.</p>';
     const stE = computeEloStates(rl, false);
-    const rowsAll = computeAdvanced(rl).filter(r => !(roster[r.id] && roster[r.id].frozen)).sort((a,b)=> b.rating-a.rating || a.name.localeCompare(b.name));
+    const rowsAll = computeAdvanced(rl).filter(r => !rankOut(r.id)).sort((a,b)=> b.rating-a.rating || a.name.localeCompare(b.name));
     const rows = rowsAll.filter(r => r.games >= minP);
     if(rows.length === 0){
       html += '<p class="roster-empty">'+(vOn ? 'Nessuna partita archiviata con questo filtro.' : 'Nessun giocatore con partite sufficienti.')+'</p>';
@@ -5484,7 +5492,7 @@ function rankingView(){
 
   if(rankMode === 'glicko'){
     html += '<p class="hint">Rating ricalcolato dai tornei archiviati (ogni torneo chiuso è un periodo di valutazione, i tornei di prova sono esclusi). Il ± indica quanto il rating è incerto: scende con le partite e risale se salti delle serate. Ogni partita vale in base al punteggio (conclusa: da 0,81 per il 6-5 a 1 per il 6-0; interrotta o pari: tra 0,5 e 0,75). Parte dal rating iniziale (come l\'Elo); i congelati ❄ restano fissi e non compaiono in classifica. Le frecce mostrano il cambio di posizione dovuto all\'ultimo torneo archiviato.</p>';
-    const rowsAll = computeGlicko(rl).filter(r => !(roster[r.id] && roster[r.id].frozen)).sort((a,b)=> b.rating-a.rating || a.name.localeCompare(b.name));
+    const rowsAll = computeGlicko(rl).filter(r => !rankOut(r.id)).sort((a,b)=> b.rating-a.rating || a.name.localeCompare(b.name));
     const rows = rowsAll.filter(r => r.games >= minP);
     const below = rowsAll.filter(r => r.games < minP);
     const seenIds = new Set(rowsAll.map(r => r.id));
