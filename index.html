@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v76">
+<meta name="app-version" content="v77">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -236,6 +236,18 @@
   .t-rank{--tc:#FFC24B;--tcs:rgba(255,194,75,0.26);}
   .t-archive{--tc:#B58CFF;--tcs:rgba(181,140,255,0.24);}
   .t-data{--tc:#3FD1B0;--tcs:rgba(63,209,176,0.24);}
+  /* Selezione compatta dei partecipanti */
+  .chip-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:6px;margin-bottom:10px;}
+  button.pchip{display:flex;flex-direction:column;align-items:flex-start;gap:1px;background:var(--card);color:var(--ink);border:1px solid var(--card-border);border-radius:10px;padding:7px 9px;cursor:pointer;font-family:var(--font-body);text-align:left;min-width:0;margin:0;}
+  button.pchip .pn{font-size:13.5px;font-weight:600;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  button.pchip .pm{font-size:10.5px;color:var(--ink-dim);font-family:var(--font-head);}
+  button.pchip.on{background:var(--ball);border-color:var(--ball);color:#1C2400;}
+  button.pchip.on .pm{color:#3E4A00;}
+  button.pchip.on .pn::before{content:'✓ ';}
+  .rost-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;}
+  .rost-tools{display:flex;gap:6px;align-items:center;margin-bottom:10px;}
+  .rost-tools select.rost-sort{flex:1;min-width:0;padding:9px 28px 9px 10px;font-size:13px;}
+  .rost-tools button.small{padding:9px 10px;font-size:12px;}
   button.live-chip{width:100%;margin:0 0 1rem;text-align:left;border-color:var(--ball-dark);font-weight:600;}
   /* Icona racchetta da padel (SVG): prende il colore del testo */
   .padel-ico{display:inline-block;vertical-align:-0.22em;flex:none;}
@@ -263,6 +275,7 @@
   <footer id="foot"></footer>
   <p id="appver" class="hint" style="text-align:center;margin:1.5rem 0 0;opacity:.65;"></p>
 </div>
+<div id="playerModal"></div>
 <nav id="tabbar" aria-label="Sezioni dell'app"></nav>
 
 <script>
@@ -816,7 +829,7 @@ function toggleSelected(key, checked){ if(checked) selected.add(key); else selec
 function selectAll(){ activeKeys().forEach(k => selected.add(k)); saveSelected(); render(); }
 function deselectAll(){ selected.clear(); saveSelected(); render(); }
 
-function startRename(key){ editingKey = key; rosterMsg = ''; render(); }
+function startRename(key){ editingKey = key; deleteArmedKey = null; rosterMsg = ''; render(); }
 function saveRename(key){
   const val = cleanText(document.getElementById('rename_'+key).value).trim();
   if(!val){ editingKey = null; rosterMsg = ''; render(); return; }
@@ -837,13 +850,15 @@ function saveRename(key){
   }
   if(frozenEl && !!frozenEl.checked !== !!p.frozen){ p.frozen = !!frozenEl.checked; ratingChanged = true; }
   if(outEl){ p.outRank = !!outEl.checked; }   // solo visibilità: non cambia nessun calcolo
+  const sideEl = document.getElementById('sideedit_'+key);
+  if(sideEl && ['', 'D', 'S'].indexOf(sideEl.value) >= 0) p.side = sideEl.value;
   if(ratingChanged){
     // Il rating iniziale cambia tutta la storia derivata: ricalcolo tutto dall'archivio.
     recomputeRatings();
     saveArchive();
   }
   saveRoster();
-  editingKey = null;
+  editingKey = null; deleteArmedKey = null;
   rosterMsg = '';
   render();
 }
@@ -893,6 +908,7 @@ function confirmDelete(key){
   saveSelected();
   saveRoster();
   deleteArmedKey = null;
+  if(editingKey === key) editingKey = null;
   render();
 }
 
@@ -1202,8 +1218,8 @@ function knownVenues(){
   return Object.keys(cnt).sort((x, y) => cnt[y] - cnt[x] || x.localeCompare(y));
 }
 function venueDatalistHtml(){ return '<datalist id="venueList">'+knownVenues().map(v => '<option value="'+esc(v)+'"></option>').join('')+'</datalist>'; }
-function venueFieldHtml(){
-  return '<div style="margin-bottom:12px;"><label class="field">Luogo / centro sportivo</label><input type="text" id="venueInput" maxlength="60" list="venueList" placeholder="es. Padel Club Verona" autocomplete="off" value="'+esc(t.venue||'')+'" oninput="updateVenue(this.value)" />'+venueDatalistHtml()+'</div>';
+function venueFieldHtml(noLabel){
+  return '<div style="margin-bottom:'+(noLabel ? 0 : 12)+'px;">'+(noLabel ? '' : '<label class="field">Luogo / centro sportivo</label>')+'<input type="text" id="venueInput" maxlength="60" list="venueList" placeholder="es. Padel Club Verona" autocomplete="off" aria-label="Luogo / centro sportivo" value="'+esc(t.venue||'')+'" oninput="updateVenue(this.value)" />'+venueDatalistHtml()+'</div>';
 }
 // Cambio luogo a torneo iniziato: il luogo si legge solo a fine torneo (archivio, condivisione, tabellone), quindi basta aggiornare t.venue.
 let venueEditing = false;
@@ -4325,55 +4341,127 @@ function ratingSummaryView(){
   return html;
 }
 
-// manage = true: vista "Giocatori" (solo gestione della rubrica, senza selezione dei partecipanti), usabile anche a torneo in corso.
+// ---------- rubrica: selezione dei partecipanti (compatta) e gestione (sezione Giocatori) ----------
+const LS_ROSTER_SORT = 'padel-rostersort-v1';
+const ROSTER_SORTS = ['name', 'last', 'matches', 'rank'];
+let rosterSort = (function(){ try{ const m = localStorage.getItem(LS_ROSTER_SORT); return ROSTER_SORTS.indexOf(m) >= 0 ? m : 'name'; }catch(e){ return 'name'; } })();
+function setRosterSort(v){ rosterSort = ROSTER_SORTS.indexOf(v) >= 0 ? v : 'name'; try{ localStorage.setItem(LS_ROSTER_SORT, rosterSort); }catch(e){} render(); }
+function rosterSortLabel(k){ return k === 'last' ? 'Ultimo torneo' : (k === 'matches' ? 'Più partite' : (k === 'rank' ? 'Classifica ('+suggestLabel()+')' : 'Nome A–Z')); }
+function rosterSortHtml(){
+  return '<select class="rost-sort" aria-label="Ordina i giocatori" onchange="setRosterSort(this.value)">'
+    + ROSTER_SORTS.map(k => '<option value="'+k+'"'+(k === rosterSort ? ' selected' : '')+'>↕ '+rosterSortLabel(k)+'</option>').join('') + '</select>';
+}
+// Partite giocate e data dell'ultimo torneo di ciascuno, dall'archivio.
+function rosterActivity(){
+  const act = {};
+  archive.forEach(a => {
+    const ts = new Date(a.date).getTime() || 0, seen = new Set();
+    archiveGames(a, true).forEach(g => (g.idsA || []).concat(g.idsB || []).forEach(id => {
+      if(!id) return;
+      seen.add(id);
+      if(!act[id]) act[id] = { matches:0, last:0 };
+      act[id].matches++;
+    }));
+    seen.forEach(id => { if(ts > act[id].last) act[id].last = ts; });
+  });
+  return act;
+}
+function rosterOrdered(){
+  const act = rosterActivity(), gm = rosterSort === 'rank' ? strengthMap() : null;
+  const byName = (a, b) => roster[a].name.localeCompare(roster[b].name);
+  const mt = k => ((act[k] && act[k].matches) || 0) + (roster[k].matches0 || 0);
+  const last = k => (act[k] && act[k].last) || 0;
+  const cmp = rosterSort === 'last' ? (a, b) => last(b) - last(a) || byName(a, b)
+    : rosterSort === 'matches' ? (a, b) => mt(b) - mt(a) || byName(a, b)
+    : rosterSort === 'rank' ? (a, b) => strengthOfId(b, gm) - strengthOfId(a, gm) || byName(a, b)
+    : byName;
+  return { keys: activeKeys().sort(cmp), act, gm, mt, last };
+}
+// Piccola riga sotto il nome: dice il motivo dell'ordine scelto.
+function rosterMeta(k, o){
+  if(rosterSort === 'matches') return o.mt(k) + ' partite';
+  if(rosterSort === 'last'){ const l = o.last(k); return l ? new Date(l).toLocaleDateString('it-IT', { day:'2-digit', month:'2-digit', year:'2-digit' }) : 'mai giocato'; }
+  return String(Math.round(rosterSort === 'rank' ? strengthOfId(k, o.gm) : (roster[k].elo || START_ELO)));
+}
+// manage = false: scelta compatta di chi gioca stasera (avvio torneo). manage = true: sezione "Giocatori" (rubrica), usabile anche a torneo in corso.
 function rosterPanel(manage){
-  const list = activeKeys().map(k => ({key:k, ...roster[k]})).sort((a,b)=> a.name.localeCompare(b.name));
-  let html = manage
-    ? '<section><p class="section-label">Rubrica &middot; '+list.length+' giocatori</p>'
-    : '<section><p class="section-label">Partecipanti'+(selected.size>0 ? ' &middot; '+selected.size+' selezionati' : '')+'</p>';
-  html += manage
-    ? '<p class="hint">Aggiungi giocatori, cambia nome e rating; tocca un nome per aprire il profilo. '+(t && t.phase === 'playing' ? 'Chi sta giocando il torneo in corso è segnato con la racchetta: se lo rinomini, il nome cambia anche nel torneo.' : 'I giocatori da far giocare stasera si scelgono nella sezione Torneo.')+'</p>'
-    : '<p class="hint">Seleziona chi gioca stasera. Nuovi nomi si aggiungono alla rubrica e restano per le prossime volte.</p>';
-  html += '<div class="add-row"><input type="text" id="newPlayer" placeholder="Nome nuovo partecipante" onkeydown="if(event.key===\'Enter\'){event.preventDefault();addNewPlayer();}" /><button class="addbtn" onclick="addNewPlayer()">Aggiungi</button></div>';
-
-  if(list.length === 0){
-    html += '<p class="roster-empty">Nessun partecipante ancora: aggiungine uno per iniziare.</p>';
+  const o = rosterOrdered(), keys = o.keys;
+  const addRow = '<div class="add-row"><input type="text" id="newPlayer" placeholder="Nome nuovo giocatore" onkeydown="if(event.key===\'Enter\'){event.preventDefault();addNewPlayer();}" /><button class="addbtn" onclick="addNewPlayer()">➕ Aggiungi</button></div>';
+  let html = '<section>';
+  if(manage){
+    html += '<p class="section-label">Rubrica &middot; '+keys.length+' giocatori</p>';
+    html += '<p class="hint">Tocca un nome per aprire il profilo, oppure Modifica per cambiare nome, rating, lato, ❄ e 🚫. '+(t && t.phase === 'playing' ? 'Chi sta giocando il torneo in corso è segnato con la racchetta: se lo rinomini, il nome cambia anche nel torneo.' : 'Chi far giocare stasera si sceglie nella sezione Torneo.')+'</p>';
+    html += addRow;
+    html += '<div class="rost-tools">'+rosterSortHtml()+'</div>';
   } else {
-    if(!manage) html += '<div class="btn-pair" style="margin-bottom:10px;"><button class="small" onclick="selectAll()">Seleziona tutti</button><button class="small" onclick="deselectAll()">Deseleziona tutti</button></div>';
+    html += '<div class="rost-head"><p class="section-label" style="margin:0;">👥 Partecipanti &middot; '+selectedCount()+' selezionati</p><button class="small" onclick="goSection(\'players\')">Gestisci giocatori</button></div>';
+    html += '<div class="rost-tools">'+rosterSortHtml()+'<button class="small" onclick="selectAll()">Tutti</button><button class="small" onclick="deselectAll()">Nessuno</button></div>';
+  }
+  if(keys.length === 0){
+    html += '<p class="roster-empty">Nessun giocatore ancora: aggiungine uno per iniziare.</p>';
+  } else if(manage){
     html += '<div class="roster-list">';
-    list.forEach(p => {
+    keys.forEach(k => {
+      const p = roster[k], side = p.side === 'S' ? 'Sx' : (p.side === 'D' ? 'Dx' : '');
       html += '<div class="roster-row">';
-      if(!manage) html += '<input type="checkbox" '+(selected.has(p.key)?'checked':'')+' onchange="toggleSelected('+jsArg(p.key)+',this.checked)" />';
-      if(editingKey === p.key){
-        html += '<input class="rname rename-input" id="rename_'+p.key+'" type="text" value="'+esc(p.name)+'" onkeydown="if(event.key===\'Enter\'){saveRename('+jsArg(p.key)+')}" />';
-        html += '<input class="rating-input" id="ratingedit_'+p.key+'" type="number" step="1" inputmode="decimal" aria-label="Rating iniziale" value="'+(Math.round((p.elo0===undefined?START_ELO:p.elo0)*10)/10)+'" onkeydown="if(event.key===\'Enter\'){saveRename('+jsArg(p.key)+')}" />';
-        html += '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;margin-left:4px;" title="Il suo rating resta fisso al valore qui sopra: non si aggiorna mai coi risultati."><input type="checkbox" id="frozenedit_'+p.key+'" '+(p.frozen?'checked':'')+' style="width:16px;height:16px;accent-color:var(--ball);" /> ❄ Congelato</label>';
-        html += '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;margin-left:4px;" title="Non compare nelle classifiche, ma i suoi risultati contano ancora per compagni e avversari."><input type="checkbox" id="outedit_'+p.key+'" '+(p.outRank?'checked':'')+' style="width:16px;height:16px;accent-color:var(--ball);" /> 🚫 Fuori classifica</label>';
-        html += '<div class="actions"><button class="small" onclick="saveRename('+jsArg(p.key)+')">Salva</button></div>';
-      } else if(deleteArmedKey === p.key){
-        html += '<span class="rname rname-text">Eliminare '+p.name+'?</span>';
-        html += '<div class="actions"><button class="small danger" onclick="confirmDelete('+jsArg(p.key)+')">Elimina</button><button class="small" onclick="cancelDelete()">Annulla</button></div>';
-      } else {
-        html += manage
-          ? '<span class="rname rname-text" style="cursor:pointer;" title="Apri il profilo" onclick="openPlayerProfile('+jsArg(p.key)+')">'+p.name+(inLiveTournament(p.key) ? ' <span title="In gara nel torneo in corso" style="color:var(--ball-text);">'+padelIcon(14)+'</span>' : '')+'</span>'
-          : '<span class="rname rname-text">'+p.name+'</span>';
-        html += '<select class="side-select" onchange="setSide('+jsArg(p.key)+',this.value)">';
-        [['','–'],['D','Dx'],['S','Sx']].forEach(([v,label]) => { html += '<option value="'+v+'"'+((p.side||'')===v?' selected':'')+'>'+label+'</option>'; });
-        html += '</select>';
-        html += '<span class="wr">'+Math.round(p.elo||START_ELO)+(p.frozen?' ❄':'')+(p.outRank?' 🚫':'')+'</span>';
-        html += '<div class="actions"><button class="small" onclick="startRename('+jsArg(p.key)+')">Modifica</button><button class="small danger" onclick="askDelete('+jsArg(p.key)+')">✕</button></div>';
-      }
+      html += '<span class="rname rname-text" style="cursor:pointer;" title="Apri il profilo" onclick="openPlayerProfile('+jsArg(k)+')">'+esc(p.name)+(inLiveTournament(k) ? ' <span title="In gara nel torneo in corso" style="color:var(--ball-text);">'+padelIcon(14)+'</span>' : '')+'</span>';
+      if(side) html += '<span class="wr">'+side+'</span>';
+      html += '<span class="wr">'+Math.round(p.elo||START_ELO)+(p.frozen?' ❄':'')+(p.outRank?' 🚫':'')+'</span>';
+      html += '<div class="actions"><button class="small" onclick="startRename('+jsArg(k)+')">✏️ Modifica</button></div>';
       html += '</div>';
     });
     html += '</div>';
-    if(editingKey && roster[editingKey]){
-      html += '<p class="hint" style="margin-top:8px;">Modifica: nome, rating iniziale (da qui partono Elo e Glicko-2, di base 1000) ❄ Congelato (rating fisso, fuori classifica — utile per ospiti di categoria superiore) e 🚫 Fuori classifica (non compare nelle classifiche, ma i suoi risultati contano ancora per gli altri — utile per ospiti di passaggio).</p>';
-    }
-    if(rosterMsg){ html += '<p class="err" style="margin-top:6px;">'+esc(rosterMsg)+'</p>'; }
+  } else {
+    html += '<div class="chip-grid">';
+    keys.forEach(k => {
+      const p = roster[k], sel = selected.has(k);
+      html += '<button class="pchip'+(sel ? ' on' : '')+'" aria-pressed="'+sel+'" onclick="toggleSelected('+jsArg(k)+','+(!sel)+')"><span class="pn">'+esc(p.name)+(p.frozen ? ' ❄' : '')+(p.outRank ? ' 🚫' : '')+'</span><span class="pm">'+esc(rosterMeta(k, o))+'</span></button>';
+    });
+    html += '</div>';
+    html += addRow;
   }
+  if(rosterMsg && !editingKey){ html += '<p class="err" style="margin-top:6px;">'+esc(rosterMsg)+'</p>'; }
   html += '</section>';
   return html;
 }
+
+// ---------- popup di modifica del giocatore ----------
+function playerEditModalHtml(key){
+  const p = roster[key];
+  const st = computeEloStates(archive, false)[key], act = rosterActivity()[key];
+  const matches = st ? st.matches : (p.matches0 || 0), wins = st ? st.wins : (p.wins0 || 0);
+  const sideOpts = [['', 'Nessuno'], ['D', 'Dx (destra)'], ['S', 'Sx (sinistra)']];
+  let h = '<div class="modal-backdrop" onclick="cancelRename()"><div class="modal-content" onclick="event.stopPropagation()" role="dialog" aria-label="Modifica giocatore">';
+  h += '<h2 style="margin:0 0 4px;font-family:var(--font-head);font-size:20px;">✏️ Modifica giocatore</h2>';
+  h += '<p class="sub" style="margin:0 0 1rem;">Elo '+Math.round(p.elo||START_ELO)+' · '+matches+' partite'+(matches ? ' · '+Math.round(wins/matches*100)+'% V' : '')+(act && act.last ? ' · ultimo torneo '+new Date(act.last).toLocaleDateString('it-IT') : '')+'</p>';
+  if(inLiveTournament(key)) h += '<p class="hint" style="margin:0 0 12px;"><span style="color:var(--ball-text);">'+padelIcon(14)+'</span> Sta giocando il torneo in corso: se cambi il nome, cambia anche lì.</p>';
+  h += '<label class="field" for="rename_'+key+'">Nome</label>';
+  h += '<input class="rename-input" id="rename_'+key+'" type="text" maxlength="40" value="'+esc(p.name)+'" onkeydown="if(event.key===\'Enter\'){saveRename('+jsArg(key)+')}" style="margin-bottom:12px;" />';
+  h += '<div class="row2" style="margin-bottom:14px;"><div><label class="field" for="ratingedit_'+key+'">Rating iniziale</label>';
+  h += '<input class="rating-input" id="ratingedit_'+key+'" type="number" step="1" inputmode="decimal" value="'+(Math.round((p.elo0===undefined?START_ELO:p.elo0)*10)/10)+'" onkeydown="if(event.key===\'Enter\'){saveRename('+jsArg(key)+')}" /></div>';
+  h += '<div><label class="field" for="sideedit_'+key+'">Lato abituale</label><select id="sideedit_'+key+'">'+sideOpts.map(([v, l]) => '<option value="'+v+'"'+((p.side||'') === v ? ' selected' : '')+'>'+l+'</option>').join('')+'</select></div></div>';
+  h += '<p class="hint" style="margin:-6px 0 12px;">Il rating iniziale è il punto da cui partono Elo e Glicko-2 (di base 1000).</p>';
+  h += '<label class="set-check"><input type="checkbox" id="frozenedit_'+key+'" '+(p.frozen ? 'checked' : '')+' /> <span>❄ <b>Congelato</b>: il rating resta fisso al valore iniziale e non compare in classifica (utile per ospiti di categoria superiore).</span></label>';
+  h += '<label class="set-check"><input type="checkbox" id="outedit_'+key+'" '+(p.outRank ? 'checked' : '')+' /> <span>🚫 <b>Fuori classifica</b>: non compare nelle classifiche, ma i suoi risultati contano ancora per compagni e avversari (utile per ospiti di passaggio).</span></label>';
+  if(rosterMsg) h += '<p class="err" style="margin:0 0 10px;">'+esc(rosterMsg)+'</p>';
+  h += '<div class="btn-pair"><button class="ghost" onclick="cancelRename()">Annulla</button><button class="primary" onclick="saveRename('+jsArg(key)+')">💾 Salva</button></div>';
+  if(deleteArmedKey === key){
+    h += '<div class="banner warn" style="margin-top:14px;"><p style="margin:0 0 10px;">Eliminare '+esc(p.name)+'? Sparisce dalla rubrica ma resta nella storia dei tornei (e riprende se lo riaggiungi).</p>';
+    h += '<div style="display:flex;gap:8px;"><button class="primary" style="background:var(--danger);color:#fff;" onclick="confirmDelete('+jsArg(key)+')">Sì, elimina</button><button class="ghost" style="margin-top:0;" onclick="cancelDelete()">Annulla</button></div></div>';
+  } else {
+    h += '<div class="btn-pair" style="margin-top:12px;"><button class="ghost" onclick="openProfileFromEdit('+jsArg(key)+')">📊 Profilo e statistiche</button><button class="ghost" style="color:var(--danger);" onclick="askDelete('+jsArg(key)+')">🗑️ Elimina</button></div>';
+  }
+  return h + '</div></div>';
+}
+let playerModalLast = '';
+function syncPlayerModal(){
+  const el = document.getElementById('playerModal');
+  if(!el) return;
+  const h = (editingKey && roster[editingKey] && !viewingPlayerId) ? playerEditModalHtml(editingKey) : '';
+  if(h !== playerModalLast){ el.innerHTML = h; playerModalLast = h; }   // se non cambia nulla il DOM resta com'è: quello che stai scrivendo non si perde
+}
+function cancelRename(){ editingKey = null; deleteArmedKey = null; rosterMsg = ''; render(); }
+function openProfileFromEdit(key){ editingKey = null; deleteArmedKey = null; rosterMsg = ''; openPlayerProfile(key); }
 
 // ---------- posizioni e frecce: confronto tra la classifica dopo l'ultimo torneo archiviato e quella dopo il penultimo ----------
 
@@ -5769,6 +5857,7 @@ document.addEventListener('focusout', () => { setTimeout(() => { const el = docu
 function render(){
   renderMain();
   syncTabBar();
+  syncPlayerModal();
   syncKiosk();
   modeBarSync();
   syncNav();
@@ -5821,6 +5910,7 @@ function renderMain(){
   if(t.phase === 'setup'){
     html += ratingSummaryView();
     html += backupBanner();
+    html += '<section><p class="section-label">📍 Dove si gioca</p>'+venueFieldHtml(true)+'</section>';
     html += rosterPanel();
 
     html += '<section><p class="section-label">Tipo di torneo</p><div class="seg">';
@@ -5855,7 +5945,7 @@ function renderMain(){
     } else {
       html += '<section><p class="section-label">Tipo di serata</p><label class="set-check" style="margin:0;"><input type="checkbox" '+(t.dynamic ? 'checked' : '')+' onchange="setDynamicTournament(this.checked)" /> <span>Serata dinamica: punteggi liberi (a punti o a tempo), conta solo chi vince. Nessun controllo sul risultato, al massimo 2 cifre.</span></label></section>';
       html += '<section><p class="section-label">Forza per gli abbinamenti</p>'+methodToggleHtml()+'<p class="hint" style="margin:0;">Le coppie vengono equilibrate con il rating scelto (Elo, Glicko-2 o Individuale; con la spunta senza contare lo scarto di game). Valgono per tutta l\'app e si possono cambiare anche durante la serata: il turno in corso si ricalcola.</p></section>';
-      html += '<section><p class="section-label">Serata</p>'+venueFieldHtml()+'<div class="row2">';
+      html += '<section><p class="section-label">Serata</p><div class="row2">';
       html += '<div><label class="field">Campi disponibili</label><input type="number" id="courtsInput" min="1" value="'+(t.courts||3)+'" oninput="updateCourts(this.value)" /></div>';
       html += '<div><label class="field">Turni da giocare</label><input type="number" id="roundsInput" min="1" value="'+(t.maxRounds||3)+'" oninput="updateRounds(this.value)" /></div>';
       html += '</div>';
@@ -5912,7 +6002,7 @@ function renderMain(){
       html += '<div class="data-row"><button class="ghost" onclick="addEmptyTeam()">➕ Aggiungi un\'altra squadra</button><button class="ghost" onclick="shareFormations()">📤 Condividi formazioni</button></div>';
       html += '</section>';
 
-      html += '<section><p class="section-label">Serata</p>'+venueFieldHtml()+'<div class="row2">';
+      html += '<section><p class="section-label">Serata</p><div class="row2">';
       html += '<div><label class="field">Campi disponibili</label><input type="number" id="courtsInput" min="1" value="'+(t.courts||3)+'" oninput="updateCourts(this.value)" /></div>';
       html += '<div><label class="field">Turni da giocare</label><input type="number" id="roundsInput" min="1" value="'+(t.maxRounds||3)+'" oninput="updateRounds(this.value)" /></div>';
       html += '</div>';
@@ -6133,6 +6223,7 @@ function navLayers(){
     if(archiveExtrasView) L.push('archiveextras');
     if(archiveExtraDraft || archiveRoundDraft || archiveRemoveConfirm || archiveSubDraft) L.push('archivedraft');
   }
+  if(editingKey && roster[editingKey]) L.push('playeredit');
   if(viewingPlayerId) L.push('profile');
   if(kioskIsOpen()) L.push('kiosk');
   return L;
@@ -6141,6 +6232,7 @@ function navCloseTop(){
   const L = navLayers();
   switch(L[L.length - 1]){
     case 'kiosk': closeKiosk(); break;
+    case 'playeredit': editingKey = null; deleteArmedKey = null; rosterMsg = ''; break;
     case 'profile': viewingPlayerId = null; break;
     case 'diag': showDiag = false; showRanking = true; break;
     case 'ranking': showRanking = false; break;
