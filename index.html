@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v75">
+<meta name="app-version" content="v76">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -20,7 +20,7 @@
 <style>
   :root{
     --court: #0B3D3A; --court-2:#0F4F49; --line:#EAF6F1;
-    --ball:#D7E856; --ball-dark:#9CAA2E;
+    --ball:#D7E856; --ball-dark:#9CAA2E; --ball-text:#D7E856;
     --ink:#EAF6F1; --ink-dim:#9FC2B8;
     --card:#103F3C; --card-border:rgba(234,246,241,0.12);
     --danger:#E2685C;
@@ -30,13 +30,14 @@
     :root{
       --court:#F4F7F2; --court-2:#EAF0E6; --line:#0B3D3A;
       --ink:#0B3D3A; --ink-dim:#547871; --card:#FFFFFF; --card-border:rgba(11,61,58,0.12);
+      --ball-text:#5C6B00;
     }
   }
   *{box-sizing:border-box;}
   body{margin:0;background:var(--court);color:var(--ink);font-family:var(--font-body);min-height:100vh;padding-bottom:3rem;}
   .wrap{max-width:480px;margin:0 auto;padding:1.5rem 1.25rem 1rem;}
   header{margin-bottom:1.5rem;}
-  .kicker{font-family:var(--font-head);font-size:13px;letter-spacing:0.02em;color:var(--ball);margin:0 0 4px;}
+  .kicker{font-family:var(--font-head);font-size:13px;letter-spacing:0.02em;color:var(--ball-text);margin:0 0 4px;}
   h1{font-family:var(--font-head);font-weight:700;font-size:28px;line-height:1.15;margin:0;letter-spacing:-0.01em;}
   .sub{color:var(--ink-dim);font-size:14px;margin:8px 0 0;line-height:1.5;}
   .court-lines{height:3px;background:repeating-linear-gradient(90deg,var(--ball) 0 18px, transparent 18px 30px);border-radius:3px;margin:1.25rem 0 1.5rem;opacity:0.6;}
@@ -58,7 +59,7 @@
   button.primary{width:100%;background:var(--ball);color:#1C2400;border:none;border-radius:12px;font-family:var(--font-head);font-weight:600;font-size:15px;padding:15px;cursor:pointer;}
   button.primary:active{transform:scale(0.98);}
   button.primary:disabled{opacity:.4;cursor:not-allowed;}
-  button.secondary{width:100%;background:transparent;color:var(--ball);border:1px solid rgba(215,232,86,0.4);border-radius:12px;font-family:var(--font-head);font-weight:600;font-size:14px;padding:13px;cursor:pointer;margin-top:10px;}
+  button.secondary{width:100%;background:transparent;color:var(--ball-text);border:1px solid rgba(215,232,86,0.4);border-radius:12px;font-family:var(--font-head);font-weight:600;font-size:14px;padding:13px;cursor:pointer;margin-top:10px;}
   button.ghost, label.ghost{width:100%;background:transparent;color:var(--ink);border:1px solid var(--card-border);border-radius:12px;font-family:var(--font-body);font-weight:500;font-size:14px;padding:12px;cursor:pointer;margin-top:10px;display:block;box-sizing:border-box;text-align:center;}
   button.small{background:transparent;color:var(--ink-dim);border:1px solid var(--card-border);border-radius:8px;font-size:11px;padding:6px 9px;cursor:pointer;font-family:var(--font-body);white-space:nowrap;}
   button.small.danger{color:var(--danger);border-color:rgba(226,104,92,0.4);}
@@ -96,7 +97,7 @@
   .rank-row:first-child{border-top:none;}
   .rank-num{font-family:var(--font-head);font-size:13px;color:var(--ink-dim);width:20px;}
   .rank-num.tied, .rank.tied{color:var(--ball-dark);font-weight:700;}
-  .rank-row.top1 .rank-num{color:var(--ball);}
+  .rank-row.top1 .rank-num{color:var(--ball-text);}
   .rank-name{flex:1;}
   .rank-elo{font-family:var(--font-head);font-weight:600;font-size:14px;}
   .rank-meta{font-size:11px;color:var(--ink-dim);width:78px;text-align:right;}
@@ -149,7 +150,7 @@
   th.num, td.num{text-align:center;}
   td{padding:10px 0;border-top:1px solid var(--card-border);}
   .rank{color:var(--ink-dim);font-family:var(--font-head);font-size:13px;width:22px;display:inline-block;}
-  .pos-1 .rank{color:var(--ball);}
+  .pos-1 .rank{color:var(--ball-text);}
 
   .history-round{margin-bottom:14px;}
   .history-round .section-label{margin-bottom:6px;}
@@ -182,7 +183,7 @@
     padding:1.5rem 1.25rem; box-sizing:border-box;
   }
   .kiosk-header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:1.5rem;flex-wrap:wrap;}
-  .kiosk-timer{font-family:var(--font-head);font-size:3rem;font-weight:700;color:var(--ball);font-variant-numeric:tabular-nums;cursor:pointer;line-height:1;}
+  .kiosk-timer{font-family:var(--font-head);font-size:3rem;font-weight:700;color:var(--ball-text);font-variant-numeric:tabular-nums;cursor:pointer;line-height:1;}
   .kiosk-match{background:var(--card);border:1px solid var(--card-border);border-radius:16px;padding:1.25rem 1rem;margin-bottom:12px;text-align:center;}
   .kiosk-court{font-family:var(--font-head);color:var(--ball-dark);font-size:12px;text-transform:uppercase;letter-spacing:0.05em;margin:0 0 12px;}
   .kiosk-teams{font-size:1.25rem;font-weight:600;display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;line-height:1.3;}
@@ -190,7 +191,7 @@
   .modal-backdrop{position:fixed;inset:0;background:rgba(11,61,58,0.82);z-index:1000;display:flex;align-items:center;justify-content:center;padding:1rem;box-sizing:border-box;}
   .modal-content{background:var(--court);border:1px solid var(--card-border);border-radius:16px;width:100%;max-width:440px;max-height:90vh;overflow-y:auto;padding:1.35rem 1.25rem;position:relative;}
   .stat-box{background:var(--card);border-radius:12px;padding:12px 14px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;}
-  .stat-box .val{font-family:var(--font-head);font-weight:700;color:var(--ball);font-size:18px;flex-shrink:0;}
+  .stat-box .val{font-family:var(--font-head);font-weight:700;color:var(--ball-text);font-size:18px;flex-shrink:0;}
   .rank-name.clickable{cursor:pointer;text-decoration:underline;text-decoration-color:rgba(215,232,86,0.35);text-underline-offset:3px;}
 
 
@@ -236,6 +237,15 @@
   .t-archive{--tc:#B58CFF;--tcs:rgba(181,140,255,0.24);}
   .t-data{--tc:#3FD1B0;--tcs:rgba(63,209,176,0.24);}
   button.live-chip{width:100%;margin:0 0 1rem;text-align:left;border-color:var(--ball-dark);font-weight:600;}
+  /* Icona racchetta da padel (SVG): prende il colore del testo */
+  .padel-ico{display:inline-block;vertical-align:-0.22em;flex:none;}
+  #tabbar button.tab .ti{color:var(--ink);}
+  #tabbar button.tab.on .ti{color:#0B3D3A;}
+  /* Pulsanti secondari: su fondo chiaro testo scuro su una tinta lime (il lime su bianco non si legge) */
+  @media (prefers-color-scheme: light){
+    button.secondary{color:#0B3D3A;background:rgba(215,232,86,0.32);border-color:var(--ball-dark);}
+    button.ghost.back-active, button.back-active{color:#0B3D3A;}
+  }
 </style>
 </head>
 <body>
@@ -1205,7 +1215,7 @@ function liveVenueHtml(){
     return '<section><label class="field">Luogo / centro sportivo</label><input type="text" id="venueLiveInput" maxlength="60" list="venueList" placeholder="nessun luogo" autocomplete="off" value="'+esc(t.venue||'')+'" onkeydown="if(event.key===\'Enter\'){saveVenueEdit();}" />'+venueDatalistHtml()
       + '<div class="btn-pair" style="margin-top:10px;"><button class="ghost" onclick="cancelVenueEdit()">Annulla</button><button class="primary" onclick="saveVenueEdit()">Salva luogo</button></div></section>';
   }
-  return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;"><span style="font-size:14px;">'+(t.venue ? '📍 '+esc(t.venue) : '<span style="opacity:.7;">Nessun luogo indicato</span>')+'</span><button class="ghost" style="margin:0;width:auto;padding:6px 12px;" onclick="openVenueEdit()">'+(t.venue ? 'Cambia luogo' : 'Aggiungi luogo')+'</button></div>';
+  return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;"><span style="font-size:14px;">'+(t.venue ? '📍 '+esc(t.venue) : '<span style="opacity:.7;">Nessun luogo indicato</span>')+'</span><button class="ghost" style="margin:0;width:auto;padding:6px 12px;" onclick="openVenueEdit()">'+(t.venue ? '✏️ Cambia luogo' : '📍 Aggiungi luogo')+'</button></div>';
 }
 function updateRounds(val){ t.maxRounds = parseInt(val)||0; saveTournament(); }
 
@@ -1696,7 +1706,7 @@ function substNotes(){
 function substSection(){
   let html = '<section>';
   if(!substOpen){
-    html += '<button class="ghost" onclick="openSubstPanel()">Ritiri e sostituzioni</button>' + substNotes();
+    html += '<button class="ghost" onclick="openSubstPanel()">🔄 Ritiri e sostituzioni</button>' + substNotes();
     return html + '</section>';
   }
   html += '<p class="section-label">Ritiri e sostituzioni</p>';
@@ -2858,15 +2868,15 @@ function dataSection(){
   html += importPreviewHtml();
   // --- Backup
   html += '<p class="data-sub first">Backup</p>';
-  html += '<div class="data-row"><button class="ghost" onclick="shareBackup()">Condividi backup</button>';
-  html += '<button class="ghost" onclick="exportData()">Scarica (.zip)</button></div>';
-  html += '<div class="data-row"><label class="ghost" for="importFile" style="cursor:pointer;">Importa backup</label></div>';
+  html += '<div class="data-row"><button class="ghost" onclick="shareBackup()">📤 Condividi backup</button>';
+  html += '<button class="ghost" onclick="exportData()">💾 Scarica (.zip)</button></div>';
+  html += '<div class="data-row"><label class="ghost" for="importFile" style="cursor:pointer;">📥 Importa backup</label></div>';
   html += '<input type="file" id="importFile" accept=".txt,.json,.zip,text/plain,application/json,application/zip" onchange="handleImportFile(this.files[0])" />';
   html += '<p class="hint" style="margin-top:8px;">Tornei archiviati: '+archive.length+' (ultimi '+ARCHIVE_MAX+')'+(lastBk ? ' · ultimo backup: '+new Date(lastBk).toLocaleString('it-IT',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : ' · nessun backup ancora')+(storagePersisted === true ? ' · memoria dell\'app protetta dal telefono' : (storagePersisted === false ? ' · memoria non protetta: fai il backup spesso' : ''))+'</p>';
   // --- Excel
   html += '<p class="data-sub">Excel</p>';
-  html += '<div class="data-row"><button class="ghost" onclick="exportExcel()">Esporta in Excel (.xlsx)</button><label class="ghost" for="importXlsx" style="cursor:pointer;">Importa da Excel</label><input type="file" id="importXlsx" accept=".xlsx" onchange="handleXlsxFile(this.files[0]); this.value=\'\'" style="display:none;" /></div>';
-  if(importUndo) html += '<div class="data-row"><button class="ghost" onclick="undoImport()">Annulla ultima importazione ('+esc(importUndo.file)+')</button></div>';
+  html += '<div class="data-row"><button class="ghost" onclick="exportExcel()">📊 Esporta in Excel (.xlsx)</button><label class="ghost" for="importXlsx" style="cursor:pointer;">📥 Importa da Excel</label><input type="file" id="importXlsx" accept=".xlsx" onchange="handleXlsxFile(this.files[0]); this.value=\'\'" style="display:none;" /></div>';
+  if(importUndo) html += '<div class="data-row"><button class="ghost" onclick="undoImport()">↩️ Annulla ultima importazione ('+esc(importUndo.file)+')</button></div>';
   // --- Calcolo delle classifiche
   html += '<p class="data-sub">Calcolo delle classifiche</p>';
   html += '<div class="set-row"><span>Conta i tornei dal</span><input type="date" value="'+esc(calc.from)+'" onchange="setCalcFrom(this.value)" /></div>';
@@ -3039,7 +3049,7 @@ function teamRankingView(){
   html += rankVenueSelectHtml() + rankManualSelectHtml();
   html += '<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin:0 0 10px;"><input type="checkbox" '+(calc.teamRot ? 'checked' : '')+' onchange="setTeamRot(this.checked)" style="width:18px;height:18px;" /> Includi le coppie di Americano e Messicano</label>';
   html += '<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;margin:0 0 10px;">Minimo partite insieme <select onchange="setTeamMin(this.value)">'+[1,2,3,5].map(n => '<option value="'+n+'"'+(n === minM ? ' selected' : '')+'>'+(n === 1 ? '1 (tutte)' : n)+'</option>').join('')+'</select></label>';
-  html += '<div style="margin-bottom:12px;"><button class="secondary" style="margin-top:0;" onclick="shareTeamRankingWhatsApp()">Condividi classifica</button></div>';
+  html += '<div style="margin-bottom:12px;"><button class="secondary" style="margin-top:0;" onclick="shareTeamRankingWhatsApp()">📤 Condividi classifica</button></div>';
   html += '<p class="hint">Aggrega tutte le volte in cui una stessa coppia ha giocato insieme, tornei di prova esclusi. Le frecce mostrano il cambio di posizione dovuto all\'ultimo torneo archiviato.</p>';
   if(list.length === 0){
     html += '<p class="roster-empty">'+(minM > 1 ? 'Nessuna squadra con almeno '+minM+' partite insieme.' : 'Nessuna squadra con partite giocate ancora.')+'</p>';
@@ -3761,7 +3771,7 @@ function archiveDetailBody(a, i){
   let html = '';
   html += manualInfoHtml(a);
   html += '<label style="display:flex;align-items:center;gap:8px;margin:4px 0 10px;font-size:13.5px;"><input type="checkbox" '+(a.excluded?'checked':'')+' onchange="toggleArchiveExclude('+i+')" style="width:18px;height:18px;accent-color:var(--ball);flex-shrink:0;" /> Escludi questo torneo da Elo, Glicko-2 e classifica squadre</label>';
-  html += '<button class="secondary" style="margin:0 0 12px;" onclick="shareArchiveResults('+i+')">Condividi risultati di questo torneo</button>';
+  html += '<button class="secondary" style="margin:0 0 12px;" onclick="shareArchiveResults('+i+')">📤 Condividi risultati di questo torneo</button>';
   const sidesMissing = 0;   // l'ordine dei nomi vale già come lato nelle squadre fisse: niente da registrare
   if(sidesMissing > 0){
     html += '<button class="secondary" style="margin:0 0 12px;" onclick="registerArchiveSides('+i+')">Registra i lati Sx/Dx ('+sidesMissing+(sidesMissing===1?' partita':' partite')+' senza lato)</button>';
@@ -3803,7 +3813,7 @@ function archiveDetailBody(a, i){
       html += '<div class="btn-pair" style="margin-top:12px;"><button class="ghost" onclick="closeArchiveRoundForm()">Annulla</button><button class="primary" onclick="saveArchiveRound()">Salva turno</button></div>';
       html += '</div>';
     } else {
-      html += '<button class="ghost" onclick="openArchiveRoundForm('+i+')">Aggiungi turno</button>';
+      html += '<button class="ghost" onclick="openArchiveRoundForm('+i+')">➕ Aggiungi turno</button>';
     }
   }
   if((a.extras && a.extras.length) || !editing){
@@ -3837,7 +3847,7 @@ function archiveDetailBody(a, i){
         html += '<div class="btn-pair" style="margin-top:12px;"><button class="ghost" onclick="closeArchiveExtraForm()">Annulla</button><button class="primary" onclick="saveArchiveExtra()">Salva partita</button></div>';
         html += '</div>';
       } else {
-        html += '<button class="ghost" onclick="openArchiveExtraForm('+i+')">Aggiungi partita extra</button>';
+        html += '<button class="ghost" onclick="openArchiveExtraForm('+i+')">➕ Aggiungi partita extra</button>';
       }
     }
   }
@@ -3850,8 +3860,8 @@ function archiveDetailBody(a, i){
   } else {
     html += archiveVenueRowHtml(a, i);
     if(archiveSubDraft && archiveSubDraft.idx === i){ html += archiveSubPanel(a, i); }
-    else { html += '<button class="ghost" style="margin-top:12px;" onclick="openArchiveSub('+i+')">Sostituisci un giocatore</button>'; }
-    html += '<div class="btn-pair" style="margin-top:12px;"><button class="ghost" onclick="startArchiveEdit('+i+')">Correggi risultati</button><button class="ghost" onclick="askDeleteArchive('+i+')">Elimina torneo</button></div>';
+    else { html += '<button class="ghost" style="margin-top:12px;" onclick="openArchiveSub('+i+')">🔄 Sostituisci un giocatore</button>'; }
+    html += '<div class="btn-pair" style="margin-top:12px;"><button class="ghost" onclick="startArchiveEdit('+i+')">✏️ Correggi risultati</button><button class="ghost" onclick="askDeleteArchive('+i+')">🗑️ Elimina torneo</button></div>';
   }
   html += badgesHtml(a);
   if(a.ratingChanges && a.ratingChanges.length){
@@ -3940,7 +3950,7 @@ function archiveView(){
   html += '<select onchange="setArchiveFilterManual(this.value)" style="margin-top:8px;width:100%;"><option value="">Tutti gli abbinamenti</option><option value="app"'+(archiveFilterManual === 'app' ? ' selected' : '')+'>Solo suggeriti dall\'app</option><option value="manual"'+(archiveFilterManual === 'manual' ? ' selected' : '')+'>Con interventi manuali</option></select>';
   html += '<input type="text" placeholder="Cerca per nome o luogo…" value="'+esc(archiveSearchText)+'" oninput="setArchiveSearchText(this.value)" style="margin-top:8px;width:100%;" />';
   if(archiveFilterYear || archiveFilterMonth!=='' || archiveFilterMode || archiveFilterPlayer || archiveFilterVenue || archiveFilterManual || archiveSearchText){
-    html += '<button class="ghost" style="margin-top:8px;" onclick="clearArchiveFilters()">Azzera filtri</button>';
+    html += '<button class="ghost" style="margin-top:8px;" onclick="clearArchiveFilters()">🧹 Azzera filtri</button>';
   }
 
   const exCountAll = extraCounts(archive).total;
@@ -4267,7 +4277,7 @@ function extrasSection(){
     html += '<span class="extra-side">'+x.s1+' &ndash; '+x.s2+(x.tb?' <span class="tb-inline">(tb '+x.tb[0]+'-'+x.tb[1]+')</span>':'')+'<button class="small danger" onclick="removeExtra('+x.id+')">✕</button></span></div>';
   });
   if(!extraDraft){
-    html += '<button class="ghost" onclick="openExtraForm()">Aggiungi partita extra</button>';
+    html += '<button class="ghost" onclick="openExtraForm()">➕ Aggiungi partita extra</button>';
   } else {
     const d = extraDraft, players = extraPlayers();
     html += '<div class="team-card" style="margin-top:10px;">';
@@ -4311,7 +4321,7 @@ function ratingSummaryView(){
     html += '<span class="delta wide '+(d>0?'up':(d<0?'down':'same'))+'">'+(d>0?'+':'')+d.toFixed(1)+'</span></div>';
     if(ai >= 0) html += whyDetails(r.id, ai, 'elo');
   });
-  html += '</div><div class="btn-pair"><button class="secondary" style="margin-top:0;" onclick="shareRatingSummaryWhatsApp()">Condividi variazioni</button><button class="ghost" style="margin-top:0;" onclick="ratingSummary=null;render();">Chiudi</button></div></section>';
+  html += '</div><div class="btn-pair"><button class="secondary" style="margin-top:0;" onclick="shareRatingSummaryWhatsApp()">📤 Condividi variazioni</button><button class="ghost" style="margin-top:0;" onclick="ratingSummary=null;render();">Chiudi</button></div></section>';
   return html;
 }
 
@@ -4322,7 +4332,7 @@ function rosterPanel(manage){
     ? '<section><p class="section-label">Rubrica &middot; '+list.length+' giocatori</p>'
     : '<section><p class="section-label">Partecipanti'+(selected.size>0 ? ' &middot; '+selected.size+' selezionati' : '')+'</p>';
   html += manage
-    ? '<p class="hint">Aggiungi giocatori, cambia nome e rating; tocca un nome per aprire il profilo. '+(t && t.phase === 'playing' ? 'Chi sta giocando il torneo in corso è segnato con 🎾: se lo rinomini, il nome cambia anche nel torneo.' : 'I giocatori da far giocare stasera si scelgono nella sezione Torneo.')+'</p>'
+    ? '<p class="hint">Aggiungi giocatori, cambia nome e rating; tocca un nome per aprire il profilo. '+(t && t.phase === 'playing' ? 'Chi sta giocando il torneo in corso è segnato con la racchetta: se lo rinomini, il nome cambia anche nel torneo.' : 'I giocatori da far giocare stasera si scelgono nella sezione Torneo.')+'</p>'
     : '<p class="hint">Seleziona chi gioca stasera. Nuovi nomi si aggiungono alla rubrica e restano per le prossime volte.</p>';
   html += '<div class="add-row"><input type="text" id="newPlayer" placeholder="Nome nuovo partecipante" onkeydown="if(event.key===\'Enter\'){event.preventDefault();addNewPlayer();}" /><button class="addbtn" onclick="addNewPlayer()">Aggiungi</button></div>';
 
@@ -4345,7 +4355,7 @@ function rosterPanel(manage){
         html += '<div class="actions"><button class="small danger" onclick="confirmDelete('+jsArg(p.key)+')">Elimina</button><button class="small" onclick="cancelDelete()">Annulla</button></div>';
       } else {
         html += manage
-          ? '<span class="rname rname-text" style="cursor:pointer;" title="Apri il profilo" onclick="openPlayerProfile('+jsArg(p.key)+')">'+p.name+(inLiveTournament(p.key) ? ' 🎾' : '')+'</span>'
+          ? '<span class="rname rname-text" style="cursor:pointer;" title="Apri il profilo" onclick="openPlayerProfile('+jsArg(p.key)+')">'+p.name+(inLiveTournament(p.key) ? ' <span title="In gara nel torneo in corso" style="color:var(--ball-text);">'+padelIcon(14)+'</span>' : '')+'</span>'
           : '<span class="rname rname-text">'+p.name+'</span>';
         html += '<select class="side-select" onchange="setSide('+jsArg(p.key)+',this.value)">';
         [['','–'],['D','Dx'],['S','Sx']].forEach(([v,label]) => { html += '<option value="'+v+'"'+((p.side||'')===v?' selected':'')+'>'+label+'</option>'; });
@@ -5547,7 +5557,7 @@ function positionsAdv(list, minP){
 
 function rankingView(){
   const RP = rankingPlayers(), all = RP.all, rl = RP.list, vOn = RP.on, minP = rankMode === 'win' ? 1 : playerMin();
-  const diagBtn = recordsGroupHtml() + '<button class="ghost" style="margin-top:14px;" onclick="showDiag=true;showRanking=false;render();">Diagnostica rating</button>';
+  const diagBtn = recordsGroupHtml() + '<button class="ghost" style="margin-top:14px;" onclick="showDiag=true;showRanking=false;render();">🔍 Diagnostica rating</button>';
   let html = '<section><p class="section-label">Classifica giocatori</p>';
   if(activeKeys().some(k => rankOut(k))){ html += '<p class="hint">I giocatori con rating ❄ congelato o 🚫 fuori classifica non compaiono in classifica.</p>'; }
   html += '<div class="seg"><button class="small'+(rankMode==='elo'?' on':'')+'" onclick="setRankMode(\'elo\')">Elo</button>';
@@ -5560,8 +5570,8 @@ function rankingView(){
   if(rankMode !== 'win' && calc.winOnly){ html += '<p class="hint">Elo e Glicko-2 contano solo chi ha vinto: 6-0 e 6-5 valgono uguale. È un\'impostazione di tutta l\'app (anche Variazioni Elo e trend) e ricalcola i rating.</p>'; }
   if(vOn){ const fparts = []; if(RP.venue) fparts.push('giocati a <b>'+esc(RP.venue)+'</b>'); if(RP.manual) fparts.push(RP.manual === 'app' ? 'con abbinamenti suggeriti dall\'app' : 'con interventi manuali sugli abbinamenti');
     html += '<p class="hint">Solo i tornei '+fparts.join(' e ')+' ('+rl.filter(countsForRatings).length+'). I rating ripartono dal valore iniziale: non sono confrontabili con quelli generali.</p>'; }
-  if(rankMode === 'adv') html += '<div style="margin-bottom:12px;"><button class="secondary" style="margin-top:0;" onclick="shareRankingWhatsApp()">Condividi classifica</button></div>';
-  else html += '<div class="btn-pair" style="margin-bottom:12px;"><button class="secondary" style="margin-top:0;" onclick="shareRankingWhatsApp()">Condividi classifica</button><button class="secondary" style="margin-top:0;" onclick="shareTrendsWhatsApp()">Condividi trend</button></div>';
+  if(rankMode === 'adv') html += '<div style="margin-bottom:12px;"><button class="secondary" style="margin-top:0;" onclick="shareRankingWhatsApp()">📤 Condividi classifica</button></div>';
+  else html += '<div class="btn-pair" style="margin-bottom:12px;"><button class="secondary" style="margin-top:0;" onclick="shareRankingWhatsApp()">📤 Condividi classifica</button><button class="secondary" style="margin-top:0;" onclick="shareTrendsWhatsApp()">📈 Condividi trend</button></div>';
 
   if(rankMode === 'adv'){
     html += '<p class="hint"><b>Forza individuale.</b> L\'Elo dà lo stesso scarto a entrambi i compagni, quindi chi gioca spesso con un forte sale con lui. Qui tutti i giocatori vengono stimati <b>insieme</b>, con un calcolo ripetuto finché i valori si stabilizzano: conta come ognuno rende con compagni diversi e contro avversari diversi. Il ± è l\'incertezza: con poche partite e sempre gli stessi compagni è ampia, e i distacchi più piccoli del ± non sono significativi. <b>Δ Elo</b> = avanzata meno Elo: se è negativo l\'Elo lo premia più di quanto la sua forza individuale giustifichi (probabile luce riflessa), se è positivo il contrario. Più compagni diversi ha giocato, più il valore è affidabile.</p>';
@@ -5699,10 +5709,12 @@ function rankingView(){
 
 
 // ---------- sezioni dell'app (barra in basso) ----------
+// Racchetta da padel (piatta, con i fori): non esiste un'emoji, quindi è un'icona SVG che prende il colore del testo.
+function padelIcon(px){ const n = px || 18; return '<svg class="padel-ico" viewBox="0 0 24 24" width="'+n+'" height="'+n+'" aria-hidden="true" focusable="false"><path fill="currentColor" fill-rule="evenodd" transform="rotate(35 12 12)" d="M12 1.4C16.2 1.4 19 4.2 19 8c0 3.4-2.3 5.6-4.4 7.2L13.4 16h-2.8l-1.2-.8C7.3 13.6 5 11.4 5 8c0-3.8 2.8-6.6 7-6.6zM10.8 16.3h2.4v5.2a1.2 1.2 0 0 1-2.4 0zM8.75 4.8a0.85 0.85 0 1 0 1.7 0a0.85 0.85 0 1 0 -1.7 0zM11.15 4.8a0.85 0.85 0 1 0 1.7 0a0.85 0.85 0 1 0 -1.7 0zM13.55 4.8a0.85 0.85 0 1 0 1.7 0a0.85 0.85 0 1 0 -1.7 0zM7.55 7.2a0.85 0.85 0 1 0 1.7 0a0.85 0.85 0 1 0 -1.7 0zM9.95 7.2a0.85 0.85 0 1 0 1.7 0a0.85 0.85 0 1 0 -1.7 0zM12.35 7.2a0.85 0.85 0 1 0 1.7 0a0.85 0.85 0 1 0 -1.7 0zM14.75 7.2a0.85 0.85 0 1 0 1.7 0a0.85 0.85 0 1 0 -1.7 0zM8.75 9.6a0.85 0.85 0 1 0 1.7 0a0.85 0.85 0 1 0 -1.7 0zM11.15 9.6a0.85 0.85 0 1 0 1.7 0a0.85 0.85 0 1 0 -1.7 0zM13.55 9.6a0.85 0.85 0 1 0 1.7 0a0.85 0.85 0 1 0 -1.7 0zM9.95 12a0.85 0.85 0 1 0 1.7 0a0.85 0.85 0 1 0 -1.7 0zM12.35 12a0.85 0.85 0 1 0 1.7 0a0.85 0.85 0 1 0 -1.7 0z"/></svg>'; }
 const SUBTITLE_DEFAULT = (document.getElementById('subtitle') || {}).textContent || '';
 // Le sezioni sono solo un modo di vedere le stesse schermate: il torneo in corso resta com'è mentre ci si sposta.
 const SECTIONS = [
-  { id:'torneo',  icon:'🎾', label:'Torneo' },
+  { id:'torneo',  icon:'', label:'Torneo' },
   { id:'players', icon:'👥', label:'Giocatori' },
   { id:'rank',    icon:'🏆', label:'Classifiche' },
   { id:'archive', icon:'📚', label:'Archivio' },
@@ -5739,14 +5751,14 @@ function rankSwitchHtml(){
 // Promemoria nelle altre sezioni: il torneo è ancora lì, un tocco e ci si torna.
 function liveChipHtml(){
   if(!t || t.phase !== 'playing' || currentSection() === 'torneo') return '';
-  return '<button class="ghost live-chip" onclick="goSection(\'torneo\')">🎾 Torna al torneo · turno '+(t.round || 1)+(t.maxRounds ? ' di '+t.maxRounds : '')+'</button>';
+  return '<button class="ghost live-chip" onclick="goSection(\'torneo\')">'+padelIcon(16)+' Torna al torneo · turno '+(t.round || 1)+(t.maxRounds ? ' di '+t.maxRounds : '')+'</button>';
 }
 function tabBarHtml(){
   const cur = currentSection(), live = !!(t && t.phase === 'playing');
   let h = '<div class="tabs">';
   SECTIONS.forEach(sec => {
     h += '<button class="tab t-'+sec.id+(sec.id === cur ? ' on' : '')+'" onclick="goSection(\''+sec.id+'\')"'+(sec.id === cur ? ' aria-current="page"' : '')+'>'
-      + '<span class="ti">'+sec.icon+'</span><span>'+sec.label+'</span>'+(sec.id === 'torneo' && live && cur !== 'torneo' ? '<span class="dot"></span>' : '')+'</button>';
+      + '<span class="ti">'+(sec.id === 'torneo' ? padelIcon(22) : sec.icon)+'</span><span>'+sec.label+'</span>'+(sec.id === 'torneo' && live && cur !== 'torneo' ? '<span class="dot"></span>' : '')+'</button>';
   });
   return h + '</div>';
 }
@@ -5834,8 +5846,8 @@ function renderMain(){
       const selN = selectedCount(), selBad = teamSelectionError(selN);
       html += repeatsCheckboxHtml();
       html += '<p class="hint" style="margin-top:12px;'+(selBad ? 'color:var(--danger);font-weight:600;' : '')+'">Selezionati: '+selN+' · servono almeno '+(minTeams()*2)+' partecipanti, in numero pari (squadre da 2).</p>';
-      html += '<button class="secondary" onclick="suggestPairings()">Suggerisci abbinamenti</button>';
-      html += '<button class="ghost" onclick="addEmptyTeam()">Oppure crea una squadra a mano</button>';
+      html += '<button class="secondary" onclick="suggestPairings()">🤝 Suggerisci abbinamenti</button>';
+      html += '<button class="ghost" onclick="addEmptyTeam()">✋ Oppure crea una squadra a mano</button>';
       html += '<p class="err" id="teamAddErr"></p>';
       if(draftTeams.length === 0) html += draftRestoreHtml();
       if(draftTeams.length === 0){ html += '<p class="err" id="setupErr"></p>'; }
@@ -5848,7 +5860,7 @@ function renderMain(){
       html += '<div><label class="field">Turni da giocare</label><input type="number" id="roundsInput" min="1" value="'+(t.maxRounds||3)+'" oninput="updateRounds(this.value)" /></div>';
       html += '</div>';
       html += '<label style="display:flex;align-items:center;gap:8px;margin-top:14px;font-size:13.5px;"><input type="checkbox" '+(t.unofficial?'checked':'')+' onchange="t.unofficial=this.checked;saveTournament();" style="width:18px;height:18px;accent-color:var(--ball);flex-shrink:0;" /> Torneo di prova (i risultati non contano per Elo, classifiche e storico)</label>';
-      html += '<button class="primary" onclick="startRotatingTournament()" style="margin-top:14px;">Inizia torneo</button>';
+      html += '<button class="primary" onclick="startRotatingTournament()" style="margin-top:14px;">▶️ Inizia torneo</button>';
       html += '<p class="err" id="setupErr"></p></section>';
     }
 
@@ -5897,7 +5909,7 @@ function renderMain(){
         }
         html += '</div>';
       });
-      html += '<div class="data-row"><button class="ghost" onclick="addEmptyTeam()">Aggiungi un\'altra squadra</button><button class="ghost" onclick="shareFormations()">Condividi formazioni</button></div>';
+      html += '<div class="data-row"><button class="ghost" onclick="addEmptyTeam()">➕ Aggiungi un\'altra squadra</button><button class="ghost" onclick="shareFormations()">📤 Condividi formazioni</button></div>';
       html += '</section>';
 
       html += '<section><p class="section-label">Serata</p>'+venueFieldHtml()+'<div class="row2">';
@@ -5910,7 +5922,7 @@ function renderMain(){
       const startBlock = fullTeams < minTeams() || !!openTeam;
       if(fullTeams < minTeams()){ html += '<p class="hint" style="margin-top:14px;color:var(--danger);font-weight:600;">Servono almeno '+minTeams()+' squadre complete per iniziare: ora ne hai '+fullTeams+'.</p>'; }
       else if(openTeam){ html += '<p class="hint" style="margin-top:14px;color:var(--danger);font-weight:600;">La Squadra '+(openTeam.id+1)+' è incompleta: completala o rimuovila.</p>'; }
-      html += '<button class="primary" onclick="startTournament()" style="margin-top:'+(startBlock ? 8 : 14)+'px;"'+(startBlock ? ' disabled' : '')+'>Inizia torneo</button>';
+      html += '<button class="primary" onclick="startTournament()" style="margin-top:'+(startBlock ? 8 : 14)+'px;"'+(startBlock ? ' disabled' : '')+'>▶️ Inizia torneo</button>';
       html += '<p class="err" id="setupErr"></p></section>';
     }
 
@@ -5961,12 +5973,12 @@ function renderMain(){
         html += '<p class="err" id="pairEditErr"></p>';
         html += '<div class="btn-pair"><button class="ghost" onclick="cancelPairEdit()">Annulla</button><button class="primary" onclick="applyPairEdit()">Applica abbinamenti</button></div></section>';
       } else {
-      html += '<button class="ghost" style="margin-bottom:10px;" onclick="openPairEdit()">Cambia abbinamenti</button>';
+      html += '<button class="ghost" style="margin-bottom:10px;" onclick="openPairEdit()">🔀 Cambia abbinamenti</button>';
       html += roundRestoreHtml();
       html += liveNoteHtml();
       html += repeatsLiveHtml();
-      html += '<div class="btn-pair" style="margin-bottom:10px;"><button class="secondary" style="margin-top:0;" onclick="shareRoundWhatsApp()">Condividi turno</button><button class="secondary" style="margin-top:0;" onclick="openKiosk()">Tabellone live</button></div>';
-      if(t.history && t.history.length){ html += '<button class="ghost" style="margin-bottom:10px;" onclick="shareLiveResults()">Condividi risultati finora</button>'; }
+      html += '<div class="btn-pair" style="margin-bottom:10px;"><button class="secondary" style="margin-top:0;" onclick="shareRoundWhatsApp()">📤 Condividi turno</button><button class="secondary" style="margin-top:0;" onclick="openKiosk()">📺 Tabellone live</button></div>';
+      if(t.history && t.history.length){ html += '<button class="ghost" style="margin-bottom:10px;" onclick="shareLiveResults()">📤 Condividi risultati finora</button>'; }
       const gmRound2 = strengthMap(), methodLabel2 = suggestLabel();
       const courtStrengths = t.currentMatches.map(m => {
         if(rotating){
@@ -6010,16 +6022,16 @@ function renderMain(){
       html += '<button class="primary" onclick="submitResults()">Salva risultati</button></section>';
       }
     } else if(t.round < t.maxRounds){
-      html += '<section><button class="primary" onclick="generateRound()">Genera turno '+(t.round+1)+' di '+t.maxRounds+'</button>';
-      if(t.round > 0){ html += '<button class="ghost" onclick="undoLastRound()">Torna al turno precedente</button>'; }
-      if(t.round > 0 || (t.extras && t.extras.length > 0)){ html += '<button class="ghost" onclick="finishTournament()">Termina torneo</button>'; }
+      html += '<section><button class="primary" onclick="generateRound()">▶️ Genera turno '+(t.round+1)+' di '+t.maxRounds+'</button>';
+      if(t.round > 0){ html += '<button class="ghost" onclick="undoLastRound()">↩️ Torna al turno precedente</button>'; }
+      if(t.round > 0 || (t.extras && t.extras.length > 0)){ html += '<button class="ghost" onclick="finishTournament()">🏁 Termina torneo</button>'; }
       html += '<div style="margin-top:14px;">'+liveNoteHtml()+(rotating ? methodToggleHtml() : '')+repeatsLiveHtml()+'</div>';
       html += '</section>';
     } else {
       html += '<section><div class="banner">Turni previsti completati.</div>';
-      html += '<button class="primary" onclick="finishTournament()">Termina torneo</button>';
-      html += '<button class="ghost" onclick="generateRound()">Gioca un turno extra</button>';
-      html += '<button class="ghost" onclick="undoLastRound()">Torna al turno precedente</button><div style="margin-top:14px;">'+liveNoteHtml()+(rotating ? methodToggleHtml() : '')+repeatsLiveHtml()+'</div></section>';
+      html += '<button class="primary" onclick="finishTournament()">🏁 Termina torneo</button>';
+      html += '<button class="ghost" onclick="generateRound()">➕ Gioca un turno extra</button>';
+      html += '<button class="ghost" onclick="undoLastRound()">↩️ Torna al turno precedente</button><div style="margin-top:14px;">'+liveNoteHtml()+(rotating ? methodToggleHtml() : '')+repeatsLiveHtml()+'</div></section>';
     }
 
     if(!rotating){ html += substSection(); }
@@ -6062,7 +6074,7 @@ function renderMain(){
       html += '<div style="display:flex;gap:8px;"><button class="primary" style="background:var(--danger);color:#fff;" onclick="resetAll()">Sì, ricomincia</button>';
       html += '<button class="ghost" style="margin-top:0;" onclick="cancelReset()">Annulla</button></div></div>';
     } else {
-      html += '<button class="ghost" onclick="resetAll()">Annulla torneo</button>';
+      html += '<button class="ghost" onclick="resetAll()">🗑️ Annulla torneo</button>';
     }
   }
 
