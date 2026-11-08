@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v77">
+<meta name="app-version" content="v78">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -4917,11 +4917,21 @@ function shareRoundWhatsApp(){
   if(t.venue) text += '📍 ' + t.venue + '\n';
   t.currentMatches.forEach((m, idx) => {
     const n = matchNamesForShare(m);
-    text += '\n*Campo ' + (idx + 1) + '*\n' + n.a + '\n🆚 ' + n.b + '\n';
+    text += '\n*Campo ' + (idx + 1) + '*\n' + n.a + ' 🆚 ' + n.b + '\n';
   });
   const rests = restingNamesForShare();
   if(rests) text += '\n🛋 *Riposano:* ' + rests + '\n';
   shareText(text.trim(), 'Turno Padel');
+}
+// Quadro di una partita: una riga per squadra, game a destra, ✓ in coda alla vincitrice (in coda, così non sposta le colonne), ⚡ se sorpresa.
+function matchBoxRows(names, m){
+  const res = matchWinner(m.s1, m.s2, m.tb);
+  const sc = (g, other) => String(g) + (m.tb && m.s1 === m.s2 ? ' (' + m.tb[other] + ')' : '');
+  const row = (name, score, won) => padR(cutStr(name, 21), 22) + padL(score, 5) + (won ? ' ✓' : '');
+  const r1 = row(names[0], sc(m.s1, 0), res === 1);
+  let r2 = row(names[1], sc(m.s2, 1), res === 0);
+  if(isUpset(m)) r2 += ' ⚡';
+  return [r1, r2];
 }
 function eloChangesBlock(changes, limit){
   const lines = [padR('Giocatore', 12) + padL('Prima', 6) + '|' + padL('Dopo', 5) + '|' + padL('Δ', 6)];
@@ -4948,8 +4958,13 @@ function formatArchiveResults(a){
   let anyUpset = false;
   (a.history || []).forEach(h => {
     text += '*Turno ' + h.round + '*\n';
-    (h.matches || []).forEach(m => { anyUpset = anyUpset || isUpset(m); const sn = matchSideNames(a, m); text += '• ' + sn[0] + ' – ' + sn[1] + ' → *' + scoreText(m) + '*' + (isUpset(m) ? ' ⚡' : '') + '\n'; });
-    text += '\n';
+    const boxLines = [];
+    (h.matches || []).forEach((m, i) => {
+      anyUpset = anyUpset || isUpset(m);
+      if(i) boxLines.push('-'.repeat(28));
+      boxLines.push(...matchBoxRows(matchSideNames(a, m), m));
+    });
+    text += monoBlock(boxLines) + '\n';
   });
   if(anyUpset) text += '⚡ = sorpresa (risultato poco previsto)\n\n';
 
