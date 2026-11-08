@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v73">
+<meta name="app-version" content="v74">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -1134,6 +1134,18 @@ function venueDatalistHtml(){ return '<datalist id="venueList">'+knownVenues().m
 function venueFieldHtml(){
   return '<div style="margin-bottom:12px;"><label class="field">Luogo / centro sportivo</label><input type="text" id="venueInput" maxlength="60" list="venueList" placeholder="es. Padel Club Verona" autocomplete="off" value="'+esc(t.venue||'')+'" oninput="updateVenue(this.value)" />'+venueDatalistHtml()+'</div>';
 }
+// Cambio luogo a torneo iniziato: il luogo si legge solo a fine torneo (archivio, condivisione, tabellone), quindi basta aggiornare t.venue.
+let venueEditing = false;
+function openVenueEdit(){ venueEditing = true; render(); const el = document.getElementById('venueLiveInput'); if(el){ el.focus(); try{ el.select(); }catch(e){} } }
+function saveVenueEdit(){ const el = document.getElementById('venueLiveInput'); if(el) updateVenue(el.value); venueEditing = false; render(); }
+function cancelVenueEdit(){ venueEditing = false; render(); }
+function liveVenueHtml(){
+  if(venueEditing){
+    return '<section><label class="field">Luogo / centro sportivo</label><input type="text" id="venueLiveInput" maxlength="60" list="venueList" placeholder="nessun luogo" autocomplete="off" value="'+esc(t.venue||'')+'" onkeydown="if(event.key===\'Enter\'){saveVenueEdit();}" />'+venueDatalistHtml()
+      + '<div class="btn-pair" style="margin-top:10px;"><button class="ghost" onclick="cancelVenueEdit()">Annulla</button><button class="primary" onclick="saveVenueEdit()">Salva luogo</button></div></section>';
+  }
+  return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;"><span style="font-size:14px;">'+(t.venue ? '📍 '+esc(t.venue) : '<span style="opacity:.7;">Nessun luogo indicato</span>')+'</span><button class="ghost" style="margin:0;width:auto;padding:6px 12px;" onclick="openVenueEdit()">'+(t.venue ? 'Cambia luogo' : 'Aggiungi luogo')+'</button></div>';
+}
 function updateRounds(val){ t.maxRounds = parseInt(val)||0; saveTournament(); }
 
 function startTournament(){
@@ -1877,7 +1889,7 @@ function submitResults(){
 }
 
 function finishTournament(){
-  liveNote = '';
+  liveNote = ''; venueEditing = false;
   ratingSummary = null;
   const rotating = !!(t.mode && t.mode !== 'fixed');
   if((t.round > 0 || (t.extras||[]).length > 0) && !t.unofficial){
@@ -1924,7 +1936,7 @@ function finishTournament(){
 }
 
 function resetAll(){
-  liveNote = '';
+  liveNote = ''; venueEditing = false;
   if(!resetArmed){ resetArmed = true; render(); return; }
   const courts = t.courts, maxRounds = t.maxRounds, venue = t.venue || '';
   t = { phase:'setup', venue, courts, maxRounds, teams:[], round:0, played:[], currentMatches:[], history:[], restCounts:{}, extras:[] };
@@ -5757,6 +5769,7 @@ function renderMain(){
   } else if(t.phase === 'playing'){
     const rotating = !!(t.mode && t.mode !== 'fixed');
     if(t.unofficial){ html += '<div class="banner">Torneo di prova: i risultati non vengono salvati in Elo, classifiche o storico.</div>'; }
+    html += liveVenueHtml();
     if(t.currentMatches.length > 0){
       html += '<section><p class="section-label">Turno '+t.round+' di '+t.maxRounds+'</p>';
       if(pairEdit){
