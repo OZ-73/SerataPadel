@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Torneo di Padel</title>
 <link rel="manifest" href="manifest.json">
-<meta name="app-version" content="v74">
+<meta name="app-version" content="v75">
 <meta name="theme-color" content="#0B3D3A" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F4F7F2" media="(prefers-color-scheme: light)">
 <meta name="mobile-web-app-capable" content="yes">
@@ -218,6 +218,24 @@
   /* App installata (PWA): rispetta tacca e barra di sistema */
   body{padding-top:env(safe-area-inset-top,0px);padding-bottom:calc(3rem + env(safe-area-inset-bottom,0px));}
   #kioskOverlay{padding-top:calc(1.5rem + env(safe-area-inset-top,0px));padding-bottom:calc(1.5rem + env(safe-area-inset-bottom,0px));}
+  /* Barra delle sezioni, fissa in basso: ogni sezione ha il suo colore e la sua icona */
+  body{padding-bottom:calc(6rem + env(safe-area-inset-bottom,0px));}
+  #toast{bottom:calc(92px + env(safe-area-inset-bottom,0px));}
+  #tabbar{position:fixed;left:0;right:0;bottom:0;z-index:50;display:flex;justify-content:center;background:var(--court);border-top:1px solid var(--card-border);box-shadow:0 -6px 18px rgba(0,0,0,0.10);padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px));}
+  #tabbar.typing{display:none;}
+  #tabbar .tabs{display:flex;gap:4px;width:100%;max-width:520px;}
+  #tabbar button.tab{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px;background:transparent;border:none;border-radius:14px;padding:5px 2px 5px;cursor:pointer;color:var(--ink-dim);font-family:var(--font-head);font-size:11px;font-weight:600;position:relative;-webkit-tap-highlight-color:transparent;}
+  #tabbar button.tab .ti{width:38px;height:30px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:18px;line-height:1;background:var(--tcs);}
+  #tabbar button.tab.on{color:var(--ink);background:var(--tcs);}
+  #tabbar button.tab.on .ti{background:var(--tc);box-shadow:0 2px 8px var(--tcs);}
+  #tabbar button.tab:active{transform:scale(0.96);}
+  #tabbar .tab .dot{position:absolute;top:3px;left:calc(50% + 8px);width:10px;height:10px;border-radius:50%;background:var(--ball);border:2px solid var(--court);}
+  .t-torneo{--tc:#D7E856;--tcs:rgba(215,232,86,0.26);}
+  .t-players{--tc:#5BB5FF;--tcs:rgba(91,181,255,0.24);}
+  .t-rank{--tc:#FFC24B;--tcs:rgba(255,194,75,0.26);}
+  .t-archive{--tc:#B58CFF;--tcs:rgba(181,140,255,0.24);}
+  .t-data{--tc:#3FD1B0;--tcs:rgba(63,209,176,0.24);}
+  button.live-chip{width:100%;margin:0 0 1rem;text-align:left;border-color:var(--ball-dark);font-weight:600;}
 </style>
 </head>
 <body>
@@ -235,6 +253,7 @@
   <footer id="foot"></footer>
   <p id="appver" class="hint" style="text-align:center;margin:1.5rem 0 0;opacity:.65;"></p>
 </div>
+<nav id="tabbar" aria-label="Sezioni dell'app"></nav>
 
 <script>
 const LS_TOURNAMENT = 'padel-tournament-v4';
@@ -443,6 +462,9 @@ let deleteArmedKey = null;
 let showRanking = false;
 let showTeamRanking = false;
 let showArchive = false;
+let showPlayers = false;   // sezione Giocatori (rubrica), disponibile anche a torneo in corso
+let showData = false;      // sezione Dati (backup, Excel, calcolo delle classifiche)
+let rankTab = 'players';   // ultima classifica aperta nella sezione Classifiche: 'players' | 'teams'
 let expandedArchiveIdx = null;
 let dataMsg = '';
 let rosterMsg = '';
@@ -795,7 +817,9 @@ function saveRename(key){
   const frozenEl = document.getElementById('frozenedit_'+key);
   const outEl = document.getElementById('outedit_'+key);
   const p = roster[key];
+  const oldName = p.name;
   p.name = val;
+  if(oldName !== val) renameInTournament(oldName, val);
   let ratingChanged = false;
   if(isFinite(newRating) && newRating >= 100 && newRating <= 3000){
     const r = Math.round(newRating*10)/10;
@@ -813,7 +837,44 @@ function saveRename(key){
   rosterMsg = '';
   render();
 }
-function askDelete(key){ deleteArmedKey = key; render(); }
+
+// ---------- giocatori a torneo in corso ----------
+// Nelle squadre fisse il torneo in corso salva i giocatori per nome (squadre, turni già giocati, sostituzioni):
+// se si rinomina qualcuno a metà serata il nome va aggiornato anche lì. Nell'Americano/Messicano i giocatori sono id e non serve.
+// L'archivio non si tocca: i nomi dei tornei passati restano un'istantanea storica.
+function renameToken(str, oldName, newName){
+  if(typeof str !== 'string') return str;
+  if(str === oldName) return newName;
+  if(str.indexOf(' & ') < 0) return str;
+  let ch = false;
+  const out = str.split(' & ').map(x => { if(x === oldName){ ch = true; return newName; } return x; });
+  return ch ? out.join(' & ') : str;
+}
+function renameWalk(v, oldName, newName, skipKeys){
+  if(!v || typeof v !== 'object') return;
+  Object.keys(v).forEach(k => {
+    if(skipKeys && skipKeys.indexOf(k) >= 0) return;
+    const x = v[k];
+    if(typeof x === 'string') v[k] = renameToken(x, oldName, newName);
+    else if(x && typeof x === 'object') renameWalk(x, oldName, newName);
+  });
+}
+function renameInTournament(oldName, newName){
+  if(t && t.phase === 'playing'){ renameWalk(t, oldName, newName, ['venue']); saveTournament(); }
+  [draftTeams, draftSugg, draftManual].forEach(d => { if(Array.isArray(d)) d.forEach(x => { if(x && x.p1 === oldName) x.p1 = newName; if(x && x.p2 === oldName) x.p2 = newName; }); });
+}
+// Il giocatore è in gara nel torneo in corso (anche se la sua squadra si è ritirata o è stato sostituito: i suoi risultati sono nel torneo).
+function inLiveTournament(key){
+  if(!t || t.phase !== 'playing' || !roster[key]) return false;
+  if(t.mode && t.mode !== 'fixed') return (t.players || []).indexOf(key) >= 0;
+  const nm = roster[key].name;
+  return (t.teams || []).some(tm => (tm.players || []).indexOf(nm) >= 0 || (tm.subs || []).some(sb => sb.out === nm || sb.in === nm));
+}
+function playersView(){ return rosterPanel(true); }
+function askDelete(key){
+  if(inLiveTournament(key)){ rosterMsg = roster[key].name+' sta giocando il torneo in corso: si potrà eliminare quando il torneo finisce.'; deleteArmedKey = null; render(); return; }
+  rosterMsg = ''; deleteArmedKey = key; render();
+}
 function cancelDelete(){ deleteArmedKey = null; render(); }
 function confirmDelete(key){
   // Eliminazione "morbida": il giocatore sparisce dalla rubrica ma resta nella storia dei tornei (e riprende se lo riaggiungi).
@@ -3049,10 +3110,26 @@ try{ extrasOff = localStorage.getItem(LS_EXTRAS_OFF) === '1'; }catch(e){}
 let archiveExtrasView = false;   // elenco aggregato di tutte le partite extra dei tornei archiviati
 let archiveSubDraft = null;      // sostituzione di un giocatore in un torneo archiviato: { idx } oppure null
 let archiveRemoveConfirm = null;  // { type:'extra'|'round', i, id|hi/mi, desc } — conferma richiesta prima di eliminare una singola partita
-function toggleArchiveExpand(idx){ expandedArchiveIdx = (expandedArchiveIdx===idx) ? null : idx; editingArchiveIdx = null; deleteArchiveArmed = null; archiveSubDraft = null; archiveExtraDraft = null; archiveRoundDraft = null; archiveRemoveConfirm = null; render(); }
-function startArchiveEdit(i){ editingArchiveIdx = i; deleteArchiveArmed = null; archiveSubDraft = null; archiveExtraDraft = null; archiveRoundDraft = null; archiveRemoveConfirm = null; render(); }
+function toggleArchiveExpand(idx){ expandedArchiveIdx = (expandedArchiveIdx===idx) ? null : idx; editingArchiveIdx = null; archiveVenueEdit = null; deleteArchiveArmed = null; archiveSubDraft = null; archiveExtraDraft = null; archiveRoundDraft = null; archiveRemoveConfirm = null; render(); }
+function startArchiveEdit(i){ editingArchiveIdx = i; archiveVenueEdit = null; deleteArchiveArmed = null; archiveSubDraft = null; archiveExtraDraft = null; archiveRoundDraft = null; archiveRemoveConfirm = null; render(); }
 function cancelArchiveEdit(){ editingArchiveIdx = null; render(); }
-function askDeleteArchive(i){ deleteArchiveArmed = i; editingArchiveIdx = null; render(); }
+function askDeleteArchive(i){ deleteArchiveArmed = i; editingArchiveIdx = null; archiveVenueEdit = null; render(); }
+// Cambio rapido del luogo di un torneo passato, senza passare da "Correggi risultati". Il luogo non entra in nessun rating: si salva e basta.
+let archiveVenueEdit = null;
+function openArchiveVenue(i){ archiveVenueEdit = i; render(); const el = document.getElementById('archVenueQuick'); if(el){ el.focus(); try{ el.select(); }catch(e){} } }
+function cancelArchiveVenue(){ archiveVenueEdit = null; render(); }
+function saveArchiveVenue(i){
+  const el = document.getElementById('archVenueQuick'), a = archive[i];
+  if(a && el){ const nv = cleanVenue(el.value); if(nv) a.venue = nv; else delete a.venue; saveArchive(); }
+  archiveVenueEdit = null; render();
+}
+function archiveVenueRowHtml(a, i){
+  if(archiveVenueEdit === i){
+    return '<div style="margin-top:12px;"><label class="field">Luogo / centro sportivo</label><input type="text" id="archVenueQuick" maxlength="60" list="venueList" placeholder="nessun luogo" autocomplete="off" value="'+esc(a.venue||'')+'" onkeydown="if(event.key===\'Enter\'){saveArchiveVenue('+i+');}" />'+venueDatalistHtml()
+      + '<div class="btn-pair" style="margin-top:10px;"><button class="ghost" onclick="cancelArchiveVenue()">Annulla</button><button class="primary" onclick="saveArchiveVenue('+i+')">Salva luogo</button></div></div>';
+  }
+  return '<button class="ghost" style="margin-top:12px;" onclick="openArchiveVenue('+i+')">'+(a.venue ? '📍 Cambia luogo' : '📍 Aggiungi luogo')+'</button>';
+}
 function cancelDeleteArchive(){ deleteArchiveArmed = null; render(); }
 function cancelArchiveRemoveConfirm(){ archiveRemoveConfirm = null; render(); }
 function confirmArchiveRemove(){
@@ -3771,6 +3848,7 @@ function archiveDetailBody(a, i){
   } else if(deleteArchiveArmed === i){
     html += '<div class="banner warn" style="margin-top:12px;"><p style="margin:0 0 10px;">Eliminare questo torneo? I rating si ricalcolano senza di lui.</p><div style="display:flex;gap:8px;"><button class="primary" style="background:var(--danger);color:#fff;" onclick="confirmDeleteArchive('+i+')">Sì, elimina</button><button class="ghost" style="margin-top:0;" onclick="cancelDeleteArchive()">Annulla</button></div></div>';
   } else {
+    html += archiveVenueRowHtml(a, i);
     if(archiveSubDraft && archiveSubDraft.idx === i){ html += archiveSubPanel(a, i); }
     else { html += '<button class="ghost" style="margin-top:12px;" onclick="openArchiveSub('+i+')">Sostituisci un giocatore</button>'; }
     html += '<div class="btn-pair" style="margin-top:12px;"><button class="ghost" onclick="startArchiveEdit('+i+')">Correggi risultati</button><button class="ghost" onclick="askDeleteArchive('+i+')">Elimina torneo</button></div>';
@@ -4237,20 +4315,25 @@ function ratingSummaryView(){
   return html;
 }
 
-function rosterPanel(){
+// manage = true: vista "Giocatori" (solo gestione della rubrica, senza selezione dei partecipanti), usabile anche a torneo in corso.
+function rosterPanel(manage){
   const list = activeKeys().map(k => ({key:k, ...roster[k]})).sort((a,b)=> a.name.localeCompare(b.name));
-  let html = '<section><p class="section-label">Partecipanti'+(selected.size>0 ? ' &middot; '+selected.size+' selezionati' : '')+'</p>';
-  html += '<p class="hint">Seleziona chi gioca stasera. Nuovi nomi si aggiungono alla rubrica e restano per le prossime volte.</p>';
+  let html = manage
+    ? '<section><p class="section-label">Rubrica &middot; '+list.length+' giocatori</p>'
+    : '<section><p class="section-label">Partecipanti'+(selected.size>0 ? ' &middot; '+selected.size+' selezionati' : '')+'</p>';
+  html += manage
+    ? '<p class="hint">Aggiungi giocatori, cambia nome e rating; tocca un nome per aprire il profilo. '+(t && t.phase === 'playing' ? 'Chi sta giocando il torneo in corso è segnato con 🎾: se lo rinomini, il nome cambia anche nel torneo.' : 'I giocatori da far giocare stasera si scelgono nella sezione Torneo.')+'</p>'
+    : '<p class="hint">Seleziona chi gioca stasera. Nuovi nomi si aggiungono alla rubrica e restano per le prossime volte.</p>';
   html += '<div class="add-row"><input type="text" id="newPlayer" placeholder="Nome nuovo partecipante" onkeydown="if(event.key===\'Enter\'){event.preventDefault();addNewPlayer();}" /><button class="addbtn" onclick="addNewPlayer()">Aggiungi</button></div>';
 
   if(list.length === 0){
     html += '<p class="roster-empty">Nessun partecipante ancora: aggiungine uno per iniziare.</p>';
   } else {
-    html += '<div class="btn-pair" style="margin-bottom:10px;"><button class="small" onclick="selectAll()">Seleziona tutti</button><button class="small" onclick="deselectAll()">Deseleziona tutti</button></div>';
+    if(!manage) html += '<div class="btn-pair" style="margin-bottom:10px;"><button class="small" onclick="selectAll()">Seleziona tutti</button><button class="small" onclick="deselectAll()">Deseleziona tutti</button></div>';
     html += '<div class="roster-list">';
     list.forEach(p => {
       html += '<div class="roster-row">';
-      html += '<input type="checkbox" '+(selected.has(p.key)?'checked':'')+' onchange="toggleSelected('+jsArg(p.key)+',this.checked)" />';
+      if(!manage) html += '<input type="checkbox" '+(selected.has(p.key)?'checked':'')+' onchange="toggleSelected('+jsArg(p.key)+',this.checked)" />';
       if(editingKey === p.key){
         html += '<input class="rname rename-input" id="rename_'+p.key+'" type="text" value="'+esc(p.name)+'" onkeydown="if(event.key===\'Enter\'){saveRename('+jsArg(p.key)+')}" />';
         html += '<input class="rating-input" id="ratingedit_'+p.key+'" type="number" step="1" inputmode="decimal" aria-label="Rating iniziale" value="'+(Math.round((p.elo0===undefined?START_ELO:p.elo0)*10)/10)+'" onkeydown="if(event.key===\'Enter\'){saveRename('+jsArg(p.key)+')}" />';
@@ -4261,7 +4344,9 @@ function rosterPanel(){
         html += '<span class="rname rname-text">Eliminare '+p.name+'?</span>';
         html += '<div class="actions"><button class="small danger" onclick="confirmDelete('+jsArg(p.key)+')">Elimina</button><button class="small" onclick="cancelDelete()">Annulla</button></div>';
       } else {
-        html += '<span class="rname rname-text">'+p.name+'</span>';
+        html += manage
+          ? '<span class="rname rname-text" style="cursor:pointer;" title="Apri il profilo" onclick="openPlayerProfile('+jsArg(p.key)+')">'+p.name+(inLiveTournament(p.key) ? ' 🎾' : '')+'</span>'
+          : '<span class="rname rname-text">'+p.name+'</span>';
         html += '<select class="side-select" onchange="setSide('+jsArg(p.key)+',this.value)">';
         [['','–'],['D','Dx'],['S','Sx']].forEach(([v,label]) => { html += '<option value="'+v+'"'+((p.side||'')===v?' selected':'')+'>'+label+'</option>'; });
         html += '</select>';
@@ -5612,8 +5697,66 @@ function rankingView(){
   return html;
 }
 
+
+// ---------- sezioni dell'app (barra in basso) ----------
+const SUBTITLE_DEFAULT = (document.getElementById('subtitle') || {}).textContent || '';
+// Le sezioni sono solo un modo di vedere le stesse schermate: il torneo in corso resta com'è mentre ci si sposta.
+const SECTIONS = [
+  { id:'torneo',  icon:'🎾', label:'Torneo' },
+  { id:'players', icon:'👥', label:'Giocatori' },
+  { id:'rank',    icon:'🏆', label:'Classifiche' },
+  { id:'archive', icon:'📚', label:'Archivio' },
+  { id:'data',    icon:'💾', label:'Dati' }
+];
+function currentSection(){
+  if(showPlayers) return 'players';
+  if(showData) return 'data';
+  if(showRanking || showTeamRanking || showDiag) return 'rank';
+  if(showArchive) return 'archive';
+  return 'torneo';
+}
+function goSection(id){
+  viewingPlayerId = null; showDiag = false; archiveExtrasView = false;
+  showPlayers = id === 'players';
+  showData = id === 'data';
+  showArchive = id === 'archive';
+  showRanking = id === 'rank' && rankTab !== 'teams';
+  showTeamRanking = id === 'rank' && rankTab === 'teams';
+  render();
+  try{ window.scrollTo(0, 0); }catch(e){}
+}
+function setRankTab(w){
+  rankTab = w === 'teams' ? 'teams' : 'players';
+  showDiag = false; viewingPlayerId = null;
+  showRanking = rankTab === 'players';
+  showTeamRanking = rankTab === 'teams';
+  render();
+}
+function rankSwitchHtml(){
+  const teams = showTeamRanking;
+  return '<div class="seg" style="margin-bottom:1rem;"><button class="small'+(!teams ? ' on' : '')+'" onclick="setRankTab(\'players\')">🏅 Giocatori</button><button class="small'+(teams ? ' on' : '')+'" onclick="setRankTab(\'teams\')">🤝 Squadre</button></div>';
+}
+// Promemoria nelle altre sezioni: il torneo è ancora lì, un tocco e ci si torna.
+function liveChipHtml(){
+  if(!t || t.phase !== 'playing' || currentSection() === 'torneo') return '';
+  return '<button class="ghost live-chip" onclick="goSection(\'torneo\')">🎾 Torna al torneo · turno '+(t.round || 1)+(t.maxRounds ? ' di '+t.maxRounds : '')+'</button>';
+}
+function tabBarHtml(){
+  const cur = currentSection(), live = !!(t && t.phase === 'playing');
+  let h = '<div class="tabs">';
+  SECTIONS.forEach(sec => {
+    h += '<button class="tab t-'+sec.id+(sec.id === cur ? ' on' : '')+'" onclick="goSection(\''+sec.id+'\')"'+(sec.id === cur ? ' aria-current="page"' : '')+'>'
+      + '<span class="ti">'+sec.icon+'</span><span>'+sec.label+'</span>'+(sec.id === 'torneo' && live && cur !== 'torneo' ? '<span class="dot"></span>' : '')+'</button>';
+  });
+  return h + '</div>';
+}
+function syncTabBar(){ const el = document.getElementById('tabbar'); if(el) el.innerHTML = tabBarHtml(); }
+// Con la tastiera aperta la barra si nasconde, così non ruba spazio.
+document.addEventListener('focusin', e => { const el = document.getElementById('tabbar'); if(el && e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) && e.target.type !== 'checkbox' && e.target.type !== 'file') el.classList.add('typing'); });
+document.addEventListener('focusout', () => { setTimeout(() => { const el = document.getElementById('tabbar'); const a = document.activeElement; if(el && !(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.type !== 'checkbox' && a.type !== 'file')) el.classList.remove('typing'); }, 50); });
 function render(){
   renderMain();
+  syncTabBar();
   syncKiosk();
   modeBarSync();
   syncNav();
@@ -5623,30 +5766,37 @@ function renderMain(){
   if(viewingPlayerId){
     document.getElementById('title').textContent = 'Profilo';
     document.getElementById('subtitle').textContent = 'Statistiche dal tuo archivio locale.';
-    app.innerHTML = playerProfileView(viewingPlayerId);
+    app.innerHTML = liveChipHtml() + playerProfileView(viewingPlayerId);
     return;
   }
-  document.getElementById('title').textContent = showDiag ? 'Diagnostica rating' : showRanking ? 'Classifica giocatori' : (showTeamRanking ? 'Classifica squadre' : (showArchive ? 'Tornei passati' : (t.phase==='setup' ? 'Nuovo torneo' : 'Torneo in corso')));
-  document.getElementById('foot').textContent = (!showRanking && !showTeamRanking && !showArchive && t.phase==='playing') ? ((t.mode && t.mode!=='fixed' ? t.players.length+' giocatori · '+({americano:'Americano',messicano:'Messicano'}[t.mode]) : t.teams.length+' squadre')+' · '+t.courts+' campi · '+t.maxRounds+' turni'+(t.venue ? ' · 📍 '+t.venue : '')) : '';
+  document.getElementById('title').textContent = showDiag ? 'Diagnostica rating' : showRanking ? 'Classifica giocatori' : (showTeamRanking ? 'Classifica squadre' : (showArchive ? 'Tornei passati' : (showPlayers ? 'Giocatori' : (showData ? 'Dati e backup' : (t.phase==='setup' ? 'Nuovo torneo' : 'Torneo in corso')))));
+  document.getElementById('subtitle').textContent = showPlayers ? 'La rubrica di tutti i giocatori: si modifica anche durante un torneo.' : (showData ? 'Backup, Excel e calcolo delle classifiche.' : SUBTITLE_DEFAULT);
+  document.getElementById('foot').textContent = (!showRanking && !showTeamRanking && !showArchive && !showPlayers && !showData && t.phase==='playing') ? ((t.mode && t.mode!=='fixed' ? t.players.length+' giocatori · '+({americano:'Americano',messicano:'Messicano'}[t.mode]) : t.teams.length+' squadre')+' · '+t.courts+' campi · '+t.maxRounds+' turni'+(t.venue ? ' · 📍 '+t.venue : '')) : '';
 
-  let html = '<div class="btn-pair" style="margin-bottom:1.25rem;">';
-  html += '<button class="ghost'+(showRanking ? ' back-active' : '')+'" onclick="showDiag=false;showRanking=!showRanking;showTeamRanking=false;showArchive=false;render();">'+(showRanking ? 'Torna al torneo' : 'Classifica giocatori')+'</button>';
-  html += '<button class="ghost'+(showTeamRanking ? ' back-active' : '')+'" onclick="showDiag=false;showTeamRanking=!showTeamRanking;showRanking=false;showArchive=false;render();">'+(showTeamRanking ? 'Torna al torneo' : 'Classifica squadre')+'</button>';
-  html += '<button class="ghost'+(showArchive ? ' back-active' : '')+'" onclick="showDiag=false;showArchive=!showArchive;archiveExtrasView=false;showRanking=false;showTeamRanking=false;render();">'+(showArchive ? 'Torna al torneo' : 'Tornei passati')+'</button>';
-  html += '</div>';
+  let html = liveChipHtml();
 
   if(showDiag){
-    html += diagView();
+    html += rankSwitchHtml() + diagView();
+    app.innerHTML = html;
+    return;
+  }
+  if(showPlayers){
+    html += playersView();
+    app.innerHTML = html;
+    return;
+  }
+  if(showData){
+    html += dataSection();
     app.innerHTML = html;
     return;
   }
   if(showRanking){
-    html += rankingView();
+    html += rankSwitchHtml() + rankingView();
     app.innerHTML = html;
     return;
   }
   if(showTeamRanking){
-    html += teamRankingView();
+    html += rankSwitchHtml() + teamRankingView();
     app.innerHTML = html;
     return;
   }
@@ -5763,8 +5913,6 @@ function renderMain(){
       html += '<button class="primary" onclick="startTournament()" style="margin-top:'+(startBlock ? 8 : 14)+'px;"'+(startBlock ? ' disabled' : '')+'>Inizia torneo</button>';
       html += '<p class="err" id="setupErr"></p></section>';
     }
-
-    html += dataSection();
 
   } else if(t.phase === 'playing'){
     const rotating = !!(t.mode && t.mode !== 'fixed');
@@ -5909,8 +6057,6 @@ function renderMain(){
       html += '</section>';
     }
 
-    html += dataSection();
-
     if(resetArmed){
       html += '<div class="banner warn"><p style="margin:0 0 10px;">Ricominciare da zero? Il torneo in corso verrà perso e i rating non cambiano.</p>';
       html += '<div style="display:flex;gap:8px;"><button class="primary" style="background:var(--danger);color:#fff;" onclick="resetAll()">Sì, ricomincia</button>';
@@ -5968,6 +6114,8 @@ function navLayers(){
   if(showDiag) L.push('ranking', 'diag');
   else if(showRanking) L.push('ranking');
   else if(showTeamRanking) L.push('teams');
+  else if(showPlayers) L.push('players');
+  else if(showData) L.push('data');
   else if(showArchive){
     L.push('archive');
     if(archiveExtrasView) L.push('archiveextras');
@@ -5985,6 +6133,8 @@ function navCloseTop(){
     case 'diag': showDiag = false; showRanking = true; break;
     case 'ranking': showRanking = false; break;
     case 'teams': showTeamRanking = false; break;
+    case 'players': showPlayers = false; break;
+    case 'data': showData = false; break;
     case 'archivedraft': archiveExtraDraft = null; archiveRoundDraft = null; archiveRemoveConfirm = null; archiveSubDraft = null; break;
     case 'archiveextras': archiveExtrasView = false; break;
     case 'archive': showArchive = false; break;
